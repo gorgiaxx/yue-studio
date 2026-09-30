@@ -201,6 +201,7 @@
   <symbol id="i-trash" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M9 7V5h6v2M6 7l1 13h10l1-13"/></symbol>
   <symbol id="i-spark" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8z"/></symbol>
   <symbol id="i-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 6 15 12 9 18"/></symbol>
+  <symbol id="i-dl" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></symbol>
 </defs></svg>
 
 <div class="app">
@@ -553,9 +554,10 @@ function renderQueue(songs, trans) {
       </div>`).join('')
     : '<div class="queue-empty">Queue idle — submit a song to begin.</div>';
 }
-
 function songActions(s) {
   const out = [];
+  if (s.audio_path)
+    out.push(`<button class="btn btn-sm" onclick="downloadAudio('${s.id}', ${JSON.stringify(s.title).replace(/"/g, '&quot;')})"><svg><use href="#i-dl"/></svg> Download</button>`);
   if (s.abc_generated)
     out.push(`<button class="btn btn-sm" onclick="location.href='/editor/${s.id}'"><svg><use href="#i-score"/></svg> Edit Score</button>`);
   if (s.status === 'running' || s.status === 'pending')
@@ -567,6 +569,14 @@ function songActions(s) {
   out.push('<span class="spacer"></span>');
   out.push(`<button class="btn-icon" title="Delete" onclick="delSong('${s.id}')"><svg><use href="#i-trash"/></svg></button>`);
   return out.join('');
+}
+
+function downloadAudio(id, title) {
+  const a = document.createElement('a');
+  a.href = '/api/songs/' + id + '/audio?download=1';
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
 }
 
 function renderSongs(songs) {

@@ -100,11 +100,18 @@ def delete_song(sid: str):
 
 
 @app.get("/api/songs/{sid}/audio")
-def song_audio(sid: str):
+def song_audio(sid: str, download: bool = False):
+    """Stream the FLAC. With ?download=1 respond as an attachment named after the title
+    (sanitized); otherwise serve inline so the <audio> element and the <a download>
+    attribute control naming and playback respectively."""
     song = db.get_song(sid)
     if not song or not song.get("audio_path"):
         raise HTTPException(404, "audio not ready")
-    return FileResponse(song["audio_path"], media_type="audio/flac", filename=f"{sid}.flac")
+    if download:
+        safe = "".join(c if c not in '\\/:*?"<>|' else "_" for c in song["title"]) or sid
+        return FileResponse(song["audio_path"], media_type="audio/flac",
+                            filename=f"{safe}.flac", content_disposition_type="attachment")
+    return FileResponse(song["audio_path"], media_type="audio/flac")
 
 
 # ---- transcription ----
