@@ -4,207 +4,802 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>YuE Studio</title>
+<link rel="stylesheet" href="/static/app.css">
 <style>
-  :root { --bg:#0f1115; --panel:#181b21; --line:#2a2f3a; --fg:#e8eaf0; --mut:#9aa1b0; --acc:#7c6cf0; }
-  * { box-sizing:border-box; }
-  body { margin:0; background:var(--bg); color:var(--fg); font:14px/1.5 -apple-system,"PingFang SC",sans-serif; }
-  header { padding:14px 24px; border-bottom:1px solid var(--line); display:flex; gap:12px; align-items:baseline; }
-  header h1 { margin:0; font-size:18px; }
-  header span { color:var(--mut); font-size:12px; }
-  main { display:grid; grid-template-columns: 380px 1fr; gap:18px; padding:18px 24px; max-width:1400px; margin:0 auto; }
-  .card { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:16px; }
-  .card h2 { margin:0 0 12px; font-size:14px; color:var(--mut); text-transform:uppercase; letter-spacing:.05em; }
-  label { display:block; font-size:12px; color:var(--mut); margin:10px 0 4px; }
-  input[type=text], input[type=number], textarea, select {
-    width:100%; background:var(--bg); color:var(--fg); border:1px solid var(--line);
-    border-radius:6px; padding:8px 10px; font:inherit; }
-  textarea { resize:vertical; min-height:70px; }
-  textarea.lyr { min-height:140px; font-family:ui-monospace,monospace; }
-  button { background:var(--acc); color:#fff; border:0; border-radius:7px; padding:9px 16px;
-    font:inherit; font-weight:600; cursor:pointer; margin-top:12px; width:100%; }
-  button:hover { filter:brightness(1.1); }
-  button.ghost { background:transparent; border:1px solid var(--line); color:var(--mut); font-weight:400; }
-  .hint { font-size:12px; color:var(--mut); margin-top:4px; }
-  .list { display:flex; flex-direction:column; gap:10px; }
-  .item { border:1px solid var(--line); border-radius:8px; padding:12px 14px; background:var(--panel); }
-  .item .top { display:flex; justify-content:space-between; align-items:center; gap:8px; }
-  .item .title { font-weight:600; }
-  .badge { font-size:11px; padding:2px 8px; border-radius:10px; background:var(--line); color:var(--mut); white-space:nowrap; }
-  .badge.running { background:#3a3050; color:#c9b8ff; }
-  .badge.done { background:#1d3a2a; color:#8ee6a8; }
-  .badge.failed { background:#4a2226; color:#ff9aa4; }
-  .item .meta { font-size:12px; color:var(--mut); margin-top:4px; }
-  .item .err { font-size:12px; color:#ff9aa4; margin-top:4px; white-space:pre-wrap; }
-  .item audio { width:100%; margin-top:10px; }
-  .row { display:flex; gap:8px; }
-  .row > * { flex:1; }
-  details.abcbox summary { cursor:pointer; font-size:12px; color:var(--mut); margin-top:8px; }
-  details.abcbox pre { background:var(--bg); border:1px solid var(--line); border-radius:6px;
-    padding:10px; font-size:11px; overflow:auto; max-height:200px; }
-  .empty { color:var(--mut); font-size:13px; padding:20px; text-align:center; }
-  .tabs { display:flex; gap:8px; margin-bottom:14px; }
-  .tabs button { width:auto; margin:0; background:transparent; color:var(--mut); border:1px solid var(--line); }
-  .tabs button.active { background:var(--acc); color:#fff; border-color:var(--acc); }
+  /* ---------- app shell ---------- */
+  .app { display: grid; grid-template-columns: 60px 1fr; height: 100vh; overflow: hidden; }
+
+  /* ---------- sidebar ---------- */
+  .sidebar {
+    background: var(--surface); border-right: 1px solid var(--border);
+    display: flex; flex-direction: column; align-items: center;
+    padding: 12px 0; gap: 4px;
+  }
+  .brand {
+    width: 36px; height: 36px; border-radius: var(--r-md);
+    display: grid; place-items: center; margin-bottom: 14px;
+    background: var(--accent-dim); color: var(--accent); border: 1px solid #34304f;
+  }
+  .brand svg { width: 20px; height: 20px; }
+  .nav-btn {
+    position: relative; width: 42px; height: 42px; border-radius: var(--r-md);
+    display: grid; place-items: center; cursor: pointer;
+    background: transparent; border: 1px solid transparent; color: var(--fg-3);
+    transition: all var(--t-fast);
+  }
+  .nav-btn svg { width: 20px; height: 20px; }
+  .nav-btn:hover { color: var(--fg-2); background: var(--surface-2); }
+  .nav-btn.active { color: var(--fg); background: var(--surface-2); border-color: var(--border); }
+  .nav-btn.active::before {
+    content: ""; position: absolute; left: -9px; top: 50%; transform: translateY(-50%);
+    width: 3px; height: 20px; border-radius: 0 3px 3px 0; background: var(--accent);
+  }
+  .nav-btn .nav-tip {
+    position: absolute; left: 50px; top: 50%; transform: translateY(-50%) translateX(-4px);
+    background: var(--surface-3); border: 1px solid var(--border-strong); color: var(--fg);
+    font-size: var(--fs-meta); padding: 4px 9px; border-radius: var(--r-sm); white-space: nowrap;
+    opacity: 0; pointer-events: none; transition: all var(--t-fast); z-index: 50; box-shadow: var(--shadow-sm);
+  }
+  .nav-btn:hover .nav-tip { opacity: 1; transform: translateY(-50%) translateX(0); }
+  .nav-spacer { flex: 1; }
+  .nav-btn .badge-dot {
+    position: absolute; top: 7px; right: 7px; width: 6px; height: 6px; border-radius: 50%;
+    background: var(--accent); display: none;
+  }
+  .nav-btn .badge-dot.on { display: block; animation: pulse 1.4s ease-in-out infinite; }
+
+  /* ---------- main column ---------- */
+  .main { display: flex; flex-direction: column; min-width: 0; overflow: hidden; }
+
+  .topbar {
+    height: 52px; flex: none; display: flex; align-items: center; gap: 14px;
+    padding: 0 18px; border-bottom: 1px solid var(--border); background: var(--surface);
+  }
+  .topbar h1 { font-size: var(--fs-title); font-weight: 600; letter-spacing: -.02em; margin: 0; }
+  .topbar .crumb { color: var(--fg-3); font-size: var(--fs-meta); }
+  .topbar .center { flex: 1; display: flex; align-items: center; gap: 10px; justify-content: center; min-width: 0; }
+  .global-state { display: none; align-items: center; gap: 8px; font-size: var(--fs-meta); color: var(--accent); }
+  .global-state.on { display: flex; }
+  .global-state .bar { width: 90px; }
+  .topbar .right { display: flex; align-items: center; gap: 6px; }
+  .engine-tag {
+    font-size: 11px; color: var(--fg-3); border: 1px solid var(--border);
+    padding: 3px 8px; border-radius: 20px; display: flex; align-items: center; gap: 5px;
+  }
+  .engine-tag .dot { width: 5px; height: 5px; border-radius: 50%; background: var(--success); }
+
+  .scroll { flex: 1; overflow: auto; }
+  .view { display: none; }
+  .view.active { display: block; }
+
+  /* ---------- create view ---------- */
+  .create-grid { display: grid; grid-template-columns: minmax(0,1fr) 320px; gap: 18px; padding: 18px; align-items: start; }
+  .workspace { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+  .page-head { padding: 4px 2px 0; }
+  .page-head h2 { margin: 0; font-size: 20px; font-weight: 600; letter-spacing: -.02em; }
+  .page-head p { margin: 4px 0 0; color: var(--fg-3); font-size: var(--fs-ctrl); }
+
+  .style-editor { min-height: 64px; }
+  .lyrics-editor { min-height: 320px; font-family: var(--font-mono); font-size: var(--fs-ctrl); line-height: 1.7; }
+  .lyrics-editor::placeholder { color: var(--fg-3); }
+  .abc-editor { min-height: 96px; font-family: var(--font-mono); font-size: var(--fs-ctrl); }
+  #abcField[hidden] { display: none; }
+
+  .section-tags { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 8px; }
+  .tag {
+    font-family: var(--font-mono); font-size: 11px; color: var(--fg-3);
+    border: 1px solid var(--border); border-radius: var(--r-sm); padding: 2px 7px; background: var(--surface-2);
+  }
+
+  .form-foot {
+    display: flex; align-items: center; gap: 14px; padding-top: 4px;
+    border-top: 1px solid var(--border-soft); margin-top: 4px; padding-top: 16px;
+  }
+  .form-foot .eta { font-size: var(--fs-meta); color: var(--fg-3); }
+  .form-foot .spacer { flex: 1; }
+  .gen-progress { display: none; align-items: center; gap: 8px; font-size: var(--fs-meta); color: var(--accent); }
+  .gen-progress.on { display: flex; }
+
+  /* ---------- queue rail ---------- */
+  .rail { position: sticky; top: 0; display: flex; flex-direction: column; gap: 16px; }
+  .queue-list { display: flex; flex-direction: column; }
+  .queue-row {
+    display: flex; align-items: center; gap: 10px; padding: 11px 16px;
+    border-bottom: 1px solid var(--border-soft); font-size: var(--fs-ctrl);
+  }
+  .queue-row:last-child { border-bottom: 0; }
+  .queue-row .q-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .queue-row .q-kind { font-size: 11px; color: var(--fg-3); }
+  .queue-empty { padding: 22px 16px; text-align: center; color: var(--fg-3); font-size: var(--fs-meta); }
+
+  /* ---------- list views ---------- */
+  .list-head { display: flex; align-items: baseline; gap: 10px; padding: 18px 18px 12px; }
+  .list-head h2 { margin: 0; font-size: 20px; font-weight: 600; letter-spacing: -.02em; }
+  .list-head .count { font-size: var(--fs-meta); color: var(--fg-3); }
+  .list { display: flex; flex-direction: column; gap: 10px; padding: 0 18px 24px; }
+
+  /* song / transcription item — render-queue style */
+  .song {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: var(--r-lg); padding: 14px 16px; transition: border-color var(--t-fast);
+  }
+  .song:hover { border-color: var(--border-strong); }
+  .song-head { display: flex; align-items: flex-start; gap: 12px; }
+  .song-id { flex: 1; min-width: 0; }
+  .song-title { font-size: var(--fs-body); font-weight: 600; letter-spacing: -.01em;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .song-meta { font-size: var(--fs-meta); color: var(--fg-3); margin-top: 3px;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .song-err {
+    margin-top: 10px; font-size: var(--fs-meta); color: var(--error);
+    background: var(--error-soft); border: 1px solid #3a2730; border-radius: var(--r-sm);
+    padding: 7px 10px; word-break: break-word;
+  }
+
+  /* custom transport */
+  .track { display: flex; align-items: center; gap: 11px; margin-top: 12px; }
+  .track audio { display: none; }
+  .tplay {
+    width: 34px; height: 34px; flex: none; border-radius: 50%;
+    background: var(--surface-2); border: 1px solid var(--border); color: var(--fg);
+    display: grid; place-items: center; cursor: pointer; transition: all var(--t-fast);
+  }
+  .tplay:hover { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .tplay svg { width: 15px; height: 15px; }
+  .track.playing .tplay { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .tseek {
+    flex: 1; height: 5px; -webkit-appearance: none; appearance: none;
+    background: var(--border); border-radius: 3px; cursor: pointer; min-width: 60px;
+  }
+  .tseek::-webkit-slider-thumb {
+    -webkit-appearance: none; width: 12px; height: 12px; border-radius: 50%;
+    background: var(--fg-2); cursor: grab; transition: background var(--t-fast);
+  }
+  .track.playing .tseek::-webkit-slider-thumb { background: var(--accent); }
+  .tseek::-moz-range-thumb { width: 12px; height: 12px; border: 0; border-radius: 50%; background: var(--fg-2); }
+  .ttime { font: var(--fs-meta) var(--font-mono); color: var(--fg-3); min-width: 84px; text-align: right; }
+
+  .song-actions { display: flex; align-items: center; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
+  .song-actions .spacer { flex: 1; }
+
+  details.abcbox { margin-top: 12px; border: 1px solid var(--border-soft); border-radius: var(--r-md); background: var(--bg); }
+  details.abcbox summary {
+    cursor: pointer; list-style: none; padding: 8px 12px; font-size: var(--fs-meta); color: var(--fg-2);
+    display: flex; align-items: center; gap: 7px; user-select: none;
+  }
+  details.abcbox summary::-webkit-details-marker { display: none; }
+  details.abcbox summary .chev { transition: transform var(--t-fast); color: var(--fg-3); display: inline-flex; }
+  details.abcbox[open] summary .chev { transform: rotate(90deg); }
+  details.abcbox pre {
+    margin: 0; padding: 0 12px 12px; font: 11px/1.55 var(--font-mono); color: var(--fg-2);
+    overflow: auto; max-height: 220px; white-space: pre;
+  }
+
+  /* ---------- responsive ---------- */
+  @media (max-width: 1180px) {
+    .create-grid { grid-template-columns: 1fr; }
+    .rail { position: static; }
+  }
+  @media (max-width: 720px) {
+    .app { grid-template-columns: 52px 1fr; }
+    .topbar .engine-tag { display: none; }
+  }
 </style>
 </head>
 <body>
-<header>
-  <h1>🎹 YuE Studio</h1>
-  <span>YuE2 生成 + SheetSage2 转写 · Apple Silicon (MPS)</span>
-</header>
-<main>
-  <section>
-    <div class="card">
-      <h2>生成歌曲</h2>
-      <form id="genForm">
-        <label>标题</label>
-        <input type="text" id="title" placeholder="我的歌" required>
-        <label>风格提示词</label>
-        <input type="text" id="style" placeholder="Mandarin pop ballad, female vocal, piano, emotional" required>
-        <label>歌词</label>
-        <textarea id="lyrics" class="lyr" placeholder="[Intro]&#10;（前奏·留空或写 [la]）&#10;&#10;[Verse]&#10;主歌歌词...&#10;&#10;[Pre-Chorus]&#10;预副歌（可选）...&#10;&#10;[Chorus]&#10;副歌歌词...&#10;&#10;[Bridge]&#10;桥段（可选）...&#10;&#10;[Outro]&#10;（尾奏·留空或写 [la]）" required></textarea>
-        <div class="hint">段落标记：[Intro] [Verse] [Pre-Chorus] [Chorus] [Bridge] [Outro]，顺序与数量随意；段落写 [la] 唱哼鸣，乐器间奏留空行。</div>
-        <label>模式</label>
-        <select id="cot">
-          <option value="full">智能编曲 (full) — 自动写旋律+和弦</option>
-          <option value="melody">旋律模式 (melody) — 用固定旋律重新编曲</option>
-          <option value="off">直出 (off) — 跳过乐谱规划</option>
-        </select>
-        <label>ABC 乐谱（可选，仅 melody 模式需要）</label>
-        <textarea id="abc" style="min-height:60px" placeholder="留空即可；或粘贴 ABC 乐谱"></textarea>
-        <div class="hint">ABC = 记录旋律/和弦的乐谱文本。不懂就不用填——转写音频后可一键复用。</div>
-        <label>Seed</label>
-        <input type="number" id="seed" value="831001" min="0">
-        <button type="submit">生成（约 5 分钟）</button>
-      </form>
-    </div>
-    <div class="card" style="margin-top:18px">
-      <h2>转录音频 → 乐谱</h2>
-      <form id="transForm">
-        <label>音频文件路径</label>
-        <input type="text" id="transPath" placeholder="/Users/rin/Documents/Audacity4/duyiwuer.mp3" required>
-        <div class="hint">转录出旋律 ABC 后，可在右侧列表一键用它生成翻唱。</div>
-        <button type="submit">开始转录</button>
-      </form>
-    </div>
-  </section>
-  <section>
-    <div class="tabs">
-      <button id="tabSongs" class="active" onclick="switchTab('songs')">歌曲</button>
-      <button id="tabTrans" onclick="switchTab('trans')">转录</button>
-    </div>
-    <div id="songList" class="list"></div>
-    <div id="transList" class="list" style="display:none"></div>
-  </section>
-</main>
-<script>
-let tab = 'songs';
-function switchTab(t) {
-  tab = t;
-  document.getElementById('tabSongs').classList.toggle('active', t === 'songs');
-  document.getElementById('tabTrans').classList.toggle('active', t === 'trans');
-  document.getElementById('songList').style.display = t === 'songs' ? '' : 'none';
-  document.getElementById('transList').style.display = t === 'trans' ? '' : 'none';
-}
+<!-- icon sprite -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs>
+  <symbol id="i-create" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v3M12 18v3M4.2 7.5l2.6 1.5M17.2 15l2.6 1.5M4.2 16.5l2.6-1.5M17.2 9l2.6-1.5"/><circle cx="12" cy="12" r="3.2"/></symbol>
+  <symbol id="i-songs" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V5l11-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="17" cy="16" r="3"/></symbol>
+  <symbol id="i-wave" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M3 12h2M7 8v8M11 5v14M15 9v6M19 11h2"/></symbol>
+  <symbol id="i-info" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 16v-4M12 8h.01"/></symbol>
+  <symbol id="i-play" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5.5v13l11-6.5z"/></symbol>
+  <symbol id="i-pause" viewBox="0 0 24 24" fill="currentColor"><rect x="7" y="5" width="3.5" height="14" rx="1"/><rect x="13.5" y="5" width="3.5" height="14" rx="1"/></symbol>
+  <symbol id="i-stop" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="1.5"/></symbol>
+  <symbol id="i-score" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h16M4 10h16M4 14h16M4 18h16"/><circle cx="8" cy="10" r="1.6" fill="currentColor"/><circle cx="14" cy="14" r="1.6" fill="currentColor"/></symbol>
+  <symbol id="i-refresh" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-2.6-6.4M21 4v5h-5"/></symbol>
+  <symbol id="i-trash" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M9 7V5h6v2M6 7l1 13h10l1-13"/></symbol>
+  <symbol id="i-spark" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8z"/></symbol>
+  <symbol id="i-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 6 15 12 9 18"/></symbol>
+</defs></svg>
 
+<div class="app">
+  <!-- ============ SIDEBAR ============ -->
+  <aside class="sidebar">
+    <div class="brand" title="YuE Studio">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V6l10-2v12"/><circle cx="6.5" cy="18" r="2.5"/><circle cx="16.5" cy="16" r="2.5"/></svg>
+    </div>
+    <button class="nav-btn active" data-view="create" onclick="showView('create')">
+      <svg><use href="#i-create"/></svg><span class="nav-tip">Create</span>
+    </button>
+    <button class="nav-btn" data-view="songs" onclick="showView('songs')">
+      <svg><use href="#i-songs"/></svg><span class="nav-tip">Songs</span>
+      <span class="badge-dot" id="dotSongs"></span>
+    </button>
+    <button class="nav-btn" data-view="trans" onclick="showView('trans')">
+      <svg><use href="#i-wave"/></svg><span class="nav-tip">Transcriptions</span>
+      <span class="badge-dot" id="dotTrans"></span>
+    </button>
+    <div class="nav-spacer"></div>
+    <button class="nav-btn" onclick="openAbout()">
+      <svg><use href="#i-info"/></svg><span class="nav-tip">About</span>
+    </button>
+  </aside>
+
+  <!-- ============ MAIN ============ -->
+  <div class="main">
+    <header class="topbar">
+      <h1>YuE Studio</h1>
+      <span class="crumb" id="crumb">Create</span>
+      <div class="center">
+        <div class="global-state" id="globalState">
+          <div class="progress-line bar"></div>
+          <span id="globalStateText">Generating…</span>
+        </div>
+      </div>
+      <div class="right">
+        <span class="engine-tag"><span class="dot"></span> YuE2 · SheetSage2 · MPS</span>
+      </div>
+    </header>
+
+    <div class="scroll">
+      <!-- ============ CREATE VIEW ============ -->
+      <section class="view active" id="view-create">
+        <div class="create-grid">
+          <div class="workspace">
+            <div class="page-head">
+              <h2>New Song</h2>
+              <p>Describe the track, write lyrics, and let the engine arrange it.</p>
+            </div>
+
+            <form id="genForm" class="panel">
+              <div class="panel-body">
+                <div class="field">
+                  <label class="field-label" for="title">Title</label>
+                  <input class="input" type="text" id="title" placeholder="Untitled" required>
+                </div>
+
+                <div class="field">
+                  <label class="field-label" for="style">Style Prompt</label>
+                  <textarea class="textarea style-editor" id="style" required
+                    placeholder="Mandarin pop ballad, female vocal, piano, emotional, slow tempo…"></textarea>
+                </div>
+
+                <div class="field">
+                  <label class="field-label" for="lyrics">Lyrics</label>
+                  <textarea class="textarea lyrics-editor" id="lyrics" required spellcheck="false"
+placeholder="[Intro]
+
+[Verse]
+主歌歌词…
+
+[Pre-Chorus]
+预副歌（可选）…
+
+[Chorus]
+副歌歌词…
+
+[Bridge]
+桥段（可选）…
+
+[Outro]
+"></textarea>
+                  <div class="section-tags">
+                    <span class="tag">[Intro]</span><span class="tag">[Verse]</span>
+                    <span class="tag">[Pre-Chorus]</span><span class="tag">[Chorus]</span>
+                    <span class="tag">[Bridge]</span><span class="tag">[Outro]</span>
+                    <span class="tag">[la] 哼鸣</span>
+                  </div>
+                  <div class="hint">段落顺序与数量随意；乐器间奏留空行，唱哼鸣写 <code>[la]</code>。标记不会改变实际提交文本。</div>
+                </div>
+
+                <div class="field">
+                  <span class="field-label">Generation Mode</span>
+                  <div class="segmented" id="modeSeg">
+                    <button type="button" data-mode="full" aria-pressed="true">
+                      <span class="seg-title">Smart Arrangement</span>
+                      <span class="seg-desc">AI 自动规划旋律 + 和弦</span>
+                    </button>
+                    <button type="button" data-mode="melody" aria-pressed="false">
+                      <span class="seg-title">Melody Guided</span>
+                      <span class="seg-desc">用指定 ABC 旋律重新编曲</span>
+                    </button>
+                    <button type="button" data-mode="off" aria-pressed="false">
+                      <span class="seg-title">Direct</span>
+                      <span class="seg-desc">跳过乐谱规划，直接生成</span>
+                    </button>
+                  </div>
+                  <input type="hidden" id="cot" value="full">
+                </div>
+
+                <div class="field" id="abcField" hidden>
+                  <label class="field-label" for="scorePick">已有乐谱 <span class="opt">— 一键填入</span></label>
+                  <div class="rowBtns" style="gap:8px;margin-bottom:8px">
+                    <select class="input" id="scorePick" style="flex:1"></select>
+                    <button type="button" class="btn ghost" id="scoreFill">填入 →</button>
+                  </div>
+                  <label class="field-label" for="abc">ABC Score <span class="opt">— melody 模式</span></label>
+                  <textarea class="textarea abc-editor" id="abc" spellcheck="false"
+                    placeholder="粘贴 ABC 乐谱，或从上方选择已有谱一键填入"></textarea>
+                  <div class="hint">ABC = 记录旋律/和弦的乐谱文本。可从转录库选择，或转写音频后在 Transcriptions 里一键复用。</div>
+                </div>
+
+                <details class="collapse" id="advBox">
+                  <summary><span class="chev"><svg class="icon" style="width:13px;height:13px"><use href="#i-chev"/></svg></span> Advanced Settings</summary>
+                  <div class="collapse-body">
+                    <div class="field" style="margin-bottom:0">
+                      <label class="field-label" for="seed">Seed</label>
+                      <input class="input" type="number" id="seed" value="831001" min="0" style="max-width:200px">
+                      <div class="hint">相同 seed + 相同输入可复现结果。未来可扩展 BPM / key / model 等参数。</div>
+                    </div>
+                  </div>
+                </details>
+              </div>
+
+              <div class="panel-body form-foot" style="border-top:1px solid var(--border-soft);padding-top:16px">
+                <button type="submit" class="btn btn-primary btn-lg" id="genBtn">
+                  <svg><use href="#i-spark"/></svg> Generate Song
+                </button>
+                <span class="eta">Estimated processing time ~5 min</span>
+                <span class="spacer"></span>
+                <span class="gen-progress" id="genProgress"><span class="spinner"></span> Submitting…</span>
+              </div>
+            </form>
+          </div>
+
+          <!-- queue rail -->
+          <div class="rail">
+            <div class="panel">
+              <div class="panel-head">
+                <h3 class="panel-title">Generation Queue</h3>
+                <span class="spacer" style="flex:1"></span>
+                <span class="panel-sub" id="queueCount"></span>
+              </div>
+              <div class="queue-list" id="queueList"></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============ SONGS VIEW ============ -->
+      <section class="view" id="view-songs">
+        <div class="list-head">
+          <h2>Songs</h2><span class="count" id="songsCount"></span>
+        </div>
+        <div id="songList" class="list"></div>
+      </section>
+
+      <!-- ============ TRANSCRIPTIONS VIEW ============ -->
+      <section class="view" id="view-trans">
+        <div class="create-grid" style="grid-template-columns:minmax(0,1fr)">
+          <div class="workspace">
+            <div class="page-head">
+              <h2>Transcribe Audio</h2>
+              <p>Convert an existing recording into an editable ABC score.</p>
+            </div>
+            <form id="transForm" class="panel">
+              <div class="panel-body">
+                <div class="field" style="margin-bottom:0">
+                  <label class="field-label" for="transPath">Audio Source</label>
+                  <input class="input mono" type="text" id="transPath" required
+                    placeholder="/Users/rin/Documents/Audacity4/duyiwuer.mp3">
+                  <div class="hint">本机音频文件绝对路径（后端按路径读取）。转录完成后可在下方 Edit Score，或一键用该旋律生成翻唱。</div>
+                </div>
+              </div>
+              <div class="panel-body form-foot" style="border-top:1px solid var(--border-soft);padding-top:16px">
+                <button type="submit" class="btn btn-primary" id="transBtn">
+                  <svg><use href="#i-wave"/></svg> Start Transcription
+                </button>
+                <span class="spacer"></span>
+                <span class="gen-progress" id="transProgress"><span class="spinner"></span> Submitting…</span>
+              </div>
+            </form>
+          </div>
+        </div>
+        <div class="list-head"><h2>Transcriptions</h2><span class="count" id="transCount"></span></div>
+        <div id="transList" class="list"></div>
+      </section>
+    </div>
+  </div>
+</div>
+
+<!-- about modal -->
+<div class="overlay" id="aboutModal">
+  <div class="panel" style="max-width:420px;width:calc(100% - 40px);box-shadow:var(--shadow-pop)">
+    <div class="panel-head">
+      <h3 class="panel-title">About YuE Studio</h3>
+      <span style="flex:1"></span>
+      <button class="btn-icon" onclick="closeAbout()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+    </div>
+    <div class="panel-body" style="color:var(--fg-2);font-size:var(--fs-ctrl);line-height:1.7">
+      <p style="margin:0 0 10px"><strong style="color:var(--fg)">AI Music Generation &amp; Score Workstation</strong></p>
+      <p style="margin:0 0 10px">YuE2 歌曲生成 · SheetSage2 音频转乐谱 · ABCJS 乐谱编辑，运行于 Apple Silicon (MPS)。SQLite 持久化所有歌曲与转录记录。</p>
+      <p style="margin:0;color:var(--fg-3)">Workflow: Create → Generate → Listen → Transcribe → Edit → Regenerate.</p>
+    </div>
+  </div>
+</div>
+
+<div class="toast-host" id="toastHost"></div>
+
+<script>
+/* ============================================================
+   YuE Studio — app logic
+   Preserves the original API surface and data structures.
+   ============================================================ */
+const $  = s => document.querySelector(s);
+const $$ = s => Array.from(document.querySelectorAll(s));
 const esc = s => (s ?? '').toString().replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 
+const PLAY_SVG  = '<svg><use href="#i-play"/></svg>';
+const PAUSE_SVG = '<svg><use href="#i-pause"/></svg>';
+
+/* ---------- toast ---------- */
+function toast(msg, kind) {
+  const host = $('#toastHost');
+  const el = document.createElement('div');
+  el.className = 'toast' + (kind ? ' ' + kind : '');
+  el.textContent = msg;
+  host.appendChild(el);
+  setTimeout(() => { el.style.opacity = '0'; el.style.transition = 'opacity .2s'; }, 1600);
+  setTimeout(() => el.remove(), 1850);
+}
+
+/* ---------- status helpers ---------- */
+const STATUS_LABEL = { pending:'Queued', running:'Generating', done:'Completed', cancelled:'Cancelled', failed:'Failed' };
+function statusHTML(status) {
+  return `<span class="status status-${esc(status)}"><span class="dot"></span>${STATUS_LABEL[status] || esc(status)}</span>`;
+}
+function fmtTime(sec) {
+  if (!isFinite(sec) || sec < 0) sec = 0;
+  const m = Math.floor(sec / 60), s = Math.floor(sec % 60);
+  return m + ':' + String(s).padStart(2, '0');
+}
+function shortTime(t) {
+  const d = new Date(t * 1000);
+  return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+}
+
+/* ---------- view switching ---------- */
+const CRUMB = { create:'Create', songs:'Songs', trans:'Transcriptions' };
+function showView(name) {
+  $$('.view').forEach(v => v.classList.toggle('active', v.id === 'view-' + name));
+  $$('.nav-btn[data-view]').forEach(b => b.classList.toggle('active', b.dataset.view === name));
+  $('#crumb').textContent = CRUMB[name] || '';
+  $('.scroll').scrollTop = 0;
+}
+
+/* ---------- generation mode segmented control ---------- */
+function setMode(m) {
+  $('#cot').value = m;
+  $$('#modeSeg button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.mode === m)));
+  $('#abcField').hidden = (m !== 'melody');
+}
+$$('#modeSeg button').forEach(b => b.onclick = () => setMode(b.dataset.mode));
+$('#scoreFill').onclick = () => {
+  const sel = $('#scorePick');
+  const opts = JSON.parse(sel.dataset.options || '[]');
+  if (!sel.value || !opts[+sel.value]) { toast('请先选择一个乐谱', 'err'); return; }
+  $('#abc').value = opts[+sel.value];
+  toast('已填入乐谱');
+};
+setMode('full');
+
+/* ---------- data refresh ---------- */
 async function refresh() {
-  const [songs, trans] = await Promise.all([
-    fetch('/api/songs').then(r => r.json()),
-    fetch('/api/transcriptions').then(r => r.json()),
-  ]);
+  let songs, trans;
+  try {
+    [songs, trans] = await Promise.all([
+      fetch('/api/songs').then(r => r.json()),
+      fetch('/api/transcriptions').then(r => r.json()),
+    ]);
+  } catch (e) { return; }
   renderSongs(songs);
   renderTrans(trans);
+  renderQueue(songs, trans);
+  renderGlobalState(songs, trans);
+  renderScorePick(trans, songs);
+}
+
+function renderScorePick(trans, songs) {
+  // Fill the "use existing score" picker: transcription scores first (canonical),
+  // then generated song scores.
+  const sel = $('#scorePick');
+  if (!sel) return;
+  const options = [];
+  for (const t of trans) {
+    if (t.status === 'done' && t.abc) options.push({ label: `🎼 ${t.name}${t.key ? ' (' + t.key + ')' : ''}`, abc: t.abc });
+  }
+  for (const s of songs) {
+    if (s.abc_generated) options.push({ label: `🎵 ${s.title} (生成谱)`, abc: s.abc_generated });
+    else if (s.abc && s.cot === 'melody') options.push({ label: `🎵 ${s.title}`, abc: s.abc });
+  }
+  const html = options.length
+    ? '<option value="">— 选择已有乐谱 —</option>' + options.map((o, i) => `<option value="${i}">${esc(o.label)}</option>`).join('')
+    : '<option value="">（暂无已完成的乐谱）</option>';
+  // Preserve selection across refreshes if possible
+  const cur = sel.value;
+  sel.innerHTML = html;
+  sel.dataset.options = JSON.stringify(options.map(o => o.abc));
+  if (cur && cur < options.length) sel.value = cur;
+}
+
+function renderGlobalState(songs, trans) {
+  const active = songs.filter(s => s.status === 'running' || s.status === 'pending')
+    .concat(trans.filter(t => t.status === 'running' || t.status === 'pending'));
+  const gs = $('#globalState');
+  gs.classList.toggle('on', active.length > 0);
+  if (active.length) {
+    const running = active.filter(a => a.status === 'running').length;
+    $('#globalStateText').textContent = running
+      ? `${running} generating · ${active.length - running} queued`
+      : `${active.length} queued`;
+  }
+  $('#dotSongs').classList.toggle('on', songs.some(s => s.status === 'running' || s.status === 'pending'));
+  $('#dotTrans').classList.toggle('on', trans.some(t => t.status === 'running' || t.status === 'pending'));
+}
+
+function renderQueue(songs, trans) {
+  const active = [
+    ...songs.filter(s => s.status === 'running' || s.status === 'pending').map(s => ({ kind:'Song', title:s.title, status:s.status })),
+    ...trans.filter(t => t.status === 'running' || t.status === 'pending').map(t => ({ kind:'Transcribe', title:t.name, status:t.status })),
+  ];
+  $('#queueCount').textContent = active.length ? active.length + ' active' : '';
+  $('#queueList').innerHTML = active.length
+    ? active.map(q => `
+      <div class="queue-row">
+        ${q.status === 'running' ? '<span class="spinner" style="border-color:rgba(124,108,240,.3);border-top-color:var(--accent)"></span>' : '<span class="status status-pending"><span class="dot"></span></span>'}
+        <span class="q-title">${esc(q.title)}</span>
+        <span class="q-kind">${q.kind}</span>
+      </div>`).join('')
+    : '<div class="queue-empty">Queue idle — submit a song to begin.</div>';
+}
+
+function songActions(s) {
+  const out = [];
+  if (s.abc_generated)
+    out.push(`<button class="btn btn-sm" onclick="location.href='/editor/${s.id}'"><svg><use href="#i-score"/></svg> Edit Score</button>`);
+  if (s.status === 'running' || s.status === 'pending')
+    out.push(`<button class="btn btn-sm btn-danger" onclick="stopSong('${s.id}')"><svg><use href="#i-stop"/></svg> Stop</button>`);
+  if (s.status === 'cancelled')
+    out.push(`<button class="btn btn-sm" onclick="rerunSong('${s.id}')"><svg><use href="#i-refresh"/></svg> Re-queue</button>`);
+  if (s.status === 'done' || s.status === 'failed' || s.status === 'cancelled')
+    out.push(`<button class="btn btn-sm" onclick="rerunSong('${s.id}')" title="用当前乐谱重新生成"><svg><use href="#i-refresh"/></svg> Regenerate</button>`);
+  out.push('<span class="spacer"></span>');
+  out.push(`<button class="btn-icon" title="Delete" onclick="delSong('${s.id}')"><svg><use href="#i-trash"/></svg></button>`);
+  return out.join('');
 }
 
 function renderSongs(songs) {
-  const sl = document.getElementById('songList');
+  const sl = $('#songList');
+  $('#songsCount').textContent = songs.length ? songs.length + ' total' : '';
   const html = songs.length ? songs.map(s => `
-    <div class="item">
-      <div class="top"><span class="title">${esc(s.title)}</span>
-        <span class="badge ${s.status}">${s.status}</span></div>
-      <div class="meta">${esc(s.style)} · seed ${s.seed} · ${new Date(s.created_at*1000).toLocaleString()}</div>
-      ${s.status === 'failed' ? `<div class="err">${esc(s.error)}</div>` : ''}
-      ${s.audio_path ? `<audio controls data-song="${s.id}" src="/api/songs/${s.id}/audio"></audio>` : ''}
-      ${s.abc_generated ? `<details class="abcbox"><summary>生成的乐谱 (ABC)</summary><pre>${esc(s.abc_generated)}</pre></details>` : ''}
-      <button class="ghost" onclick="location.href='/editor/${s.id}'">编辑乐谱</button>
-      <button class="ghost" onclick="delSong('${s.id}')">删除</button>
-    </div>`).join('') : '<div class="empty">还没有歌曲，左侧提交第一个吧</div>';
-  updateListPreservingPlayback(sl, html);
+    <article class="song" data-id="${esc(s.id)}">
+      <div class="song-head">
+        <div class="song-id">
+          <div class="song-title" ondblclick="renameTitle(this, 'song', '${esc(s.id)}')" title="Double-click to rename">${esc(s.title)}</div>
+          <div class="song-meta">${esc(s.style)} · Seed ${s.seed} · Created ${shortTime(s.created_at)}${s.updated_at ? ' · Modified ' + shortTime(s.updated_at) : ''}</div>
+        </div>
+        ${statusHTML(s.status)}
+      </div>
+      ${s.status === 'failed' && s.error ? `<div class="song-err">${esc(s.error)}</div>` : ''}
+      ${s.audio_path ? `
+        <div class="track">
+          <audio preload="metadata" data-song="${esc(s.id)}" src="/api/songs/${s.id}/audio"></audio>
+          <button class="tplay" type="button">${PLAY_SVG}</button>
+          <input class="tseek" type="range" min="0" max="1000" value="0" step="1">
+          <span class="ttime">0:00 / 0:00</span>
+        </div>` : ''}
+      ${s.abc_generated ? `
+        <details class="abcbox">
+          <summary><span class="chev"><svg class="icon" style="width:12px;height:12px"><use href="#i-chev"/></svg></span> Generated score (ABC)</summary>
+          <pre>${esc(s.abc_generated)}</pre>
+        </details>` : ''}
+      <div class="song-actions">${songActions(s)}</div>
+    </article>`).join('')
+    : emptyState('i-songs', 'No songs yet', 'Head to Create and submit your first track.');
+  const rebuilt = updateListPreservingPlayback(sl, html);
+  if (rebuilt) wirePlayers(sl);
 }
 
 function renderTrans(trans) {
-  const tl = document.getElementById('transList');
+  const tl = $('#transList');
+  $('#transCount').textContent = trans.length ? trans.length + ' total' : '';
   const html = trans.length ? trans.map(t => `
-    <div class="item">
-      <div class="top"><span class="title">${esc(t.name)}</span>
-        <span class="badge ${t.status}">${t.status}</span></div>
-      <div class="meta">${esc(t.source)}${t.key ? ' · 调性 ' + esc(t.key) : ''}${t.duration ? ' · ' + t.duration.toFixed(1) + 's' : ''}</div>
-      ${t.status === 'failed' ? `<div class="err">${esc(t.error)}</div>` : ''}
-      ${t.abc ? `<details class="abcbox" ${t.status==='done'?'open':''}><summary>旋律乐谱 (ABC)</summary><pre>${esc(t.abc)}</pre></details>` : ''}
-      ${t.status === 'done' ? `<button class="ghost" onclick="useTrans('${t.id}')">用这个旋律生成翻唱 →</button>` : ''}
-    </div>`).join('') : '<div class="empty">没有转录任务</div>';
-  updateListPreservingPlayback(tl, html);
+    <article class="song" data-id="${esc(t.id)}">
+      <div class="song-head">
+        <div class="song-id">
+          <div class="song-title" ondblclick="renameTitle(this, 'trans', '${esc(t.id)}')" title="Double-click to rename">${esc(t.name)}</div>
+          <div class="song-meta">${esc(t.source)}${t.key ? ' · Key ' + esc(t.key) : ''}${t.duration ? ' · ' + t.duration.toFixed(1) + 's' : ''} · Created ${shortTime(t.created_at)}${t.updated_at ? ' · Modified ' + shortTime(t.updated_at) : ''}</div>
+        </div>
+        ${statusHTML(t.status)}
+      </div>
+      ${t.status === 'failed' && t.error ? `<div class="song-err">${esc(t.error)}</div>` : ''}
+      ${t.abc ? `
+        <details class="abcbox" ${t.status === 'done' ? 'open' : ''}>
+          <summary><span class="chev"><svg class="icon" style="width:12px;height:12px"><use href="#i-chev"/></svg></span> Melody score (ABC)</summary>
+          <pre>${esc(t.abc)}</pre>
+        </details>` : ''}
+      <div class="song-actions">
+        ${t.status === 'done' ? `<button class="btn btn-sm" onclick="location.href='/editor/trans/${t.id}'"><svg><use href="#i-score"/></svg> Edit Score</button>` : ''}
+        ${t.status === 'done' ? `<button class="btn btn-sm" onclick="useTrans('${t.id}')"><svg><use href="#i-spark"/></svg> Use as cover melody</button>` : ''}
+        ${(t.status === 'running' || t.status === 'pending') ? `<button class="btn btn-sm btn-danger" onclick="stopTrans('${t.id}')"><svg><use href="#i-stop"/></svg> Stop</button>` : ''}
+        <span class="spacer"></span>
+        ${(t.status !== 'running' && t.status !== 'pending') ? `<button class="btn-icon" title="Delete" onclick="delTrans('${t.id}')"><svg><use href="#i-trash"/></svg></button>` : ''}
+      </div>
+    </article>`).join('')
+    : emptyState('i-wave', 'No transcriptions', 'Submit an audio path above to convert it into an editable score.');
+  const rebuilt = updateListPreservingPlayback(tl, html);
+  if (rebuilt) wirePlayers(tl);
 }
 
+function emptyState(icon, title, sub) {
+  return `<div class="empty panel"><svg><use href="#${icon}"/></svg>
+    <div class="empty-title">${title}</div><div class="empty-sub">${sub}</div></div>`;
+}
+
+/* Rebuild a list only when its content changed, carrying over in-flight audio
+   playback (position, volume, playing state) so refreshes don't cut audio. */
 function updateListPreservingPlayback(el, html) {
-  // Avoid rebuilding DOM mid-playback: skip identical content, and when
-  // content does change, carry playing audio elements over with their state.
-  if (el._html === html) return;
+  if (el._html === html) return false;
   const players = {};
-  for (const a of el.querySelectorAll('audio')) {
-    players[a.dataset.song || a.src] = {playing: !a.paused, time: a.currentTime, volume: a.volume, muted: a.muted};
-  }
+  for (const a of el.querySelectorAll('audio'))
+    players[a.dataset.song || a.src] = { playing: !a.paused, time: a.currentTime, volume: a.volume, muted: a.muted };
   el._html = html;
   el.innerHTML = html;
   for (const a of el.querySelectorAll('audio')) {
     const state = players[a.dataset.song || a.src];
     if (!state) continue;
-    a.currentTime = state.time;
-    a.volume = state.volume;
-    a.muted = state.muted;
+    try { a.currentTime = state.time; } catch (e) {}
+    a.volume = state.volume; a.muted = state.muted;
     if (state.playing) a.play().catch(() => {});
   }
+  return true;
 }
 
-async function delSong(id) {
-  if (!confirm('删除这首歌？')) return;
-  await fetch('/api/songs/' + id, {method: 'DELETE'});
-  refresh();
-}
-
-function useTrans(tid) {
-  // Prefill the generation form from a transcription and jump to it.
-  fetch('/api/transcriptions/' + tid).then(r => r.json()).then(t => {
-    document.getElementById('title').value = t.name + ' cover';
-    document.getElementById('cot').value = 'melody';
-    document.getElementById('abc').value = t.abc || '';
-    document.getElementById('genForm').scrollIntoView({behavior: 'smooth'});
+/* ---------- custom transport wiring ---------- */
+function wirePlayers(container) {
+  container.querySelectorAll('.track').forEach(track => {
+    const audio = track.querySelector('audio');
+    const btn   = track.querySelector('.tplay');
+    const seek  = track.querySelector('.tseek');
+    const time  = track.querySelector('.ttime');
+    if (!audio || !btn) return;
+    const sync = () => { btn.innerHTML = audio.paused ? PLAY_SVG : PAUSE_SVG; track.classList.toggle('playing', !audio.paused); };
+    btn.onclick = () => {
+      if (audio.paused) {
+        document.querySelectorAll('.track audio').forEach(o => { if (o !== audio && !o.paused) o.pause(); });
+        audio.play().catch(() => toast('Playback failed', 'err'));
+      } else audio.pause();
+    };
+    audio.onplay = sync; audio.onpause = sync; audio.onended = sync;
+    audio.ontimeupdate = () => {
+      if (audio.duration) { seek.value = Math.round(audio.currentTime / audio.duration * 1000); time.textContent = fmtTime(audio.currentTime) + ' / ' + fmtTime(audio.duration); }
+      else time.textContent = fmtTime(audio.currentTime);
+    };
+    audio.onloadedmetadata = () => { time.textContent = '0:00 / ' + fmtTime(audio.duration); };
+    seek.oninput = () => { if (audio.duration) audio.currentTime = seek.value / 1000 * audio.duration; };
+    sync();
   });
 }
 
-document.getElementById('genForm').onsubmit = async e => {
-  e.preventDefault();
-  const body = {
-    title: title.value, style: style.value, lyrics: lyrics.value,
-    cot: cot.value, abc: abc.value.trim() || null, seed: +seed.value,
+/* ---------- actions ---------- */
+async function stopSong(id) {
+  if (!confirm('停止这个生成任务？')) return;
+  const r = await fetch('/api/songs/' + id + '/cancel', { method: 'POST' });
+  if (!r.ok) toast((await r.json()).detail || '停止失败', 'err');
+  refresh();
+}
+async function stopTrans(id) {
+  if (!confirm('停止这个转录任务？')) return;
+  const r = await fetch('/api/transcriptions/' + id + '/cancel', { method: 'POST' });
+  if (!r.ok) toast((await r.json()).detail || '停止失败', 'err');
+  refresh();
+}
+async function rerunSong(id) {
+  const r = await fetch('/api/songs/' + id + '/regenerate', { method: 'POST' });
+  if (!r.ok) toast((await r.json()).detail || '重新排队失败', 'err');
+  else toast('已加入生成队列', 'ok');
+  refresh();
+}
+
+function renameTitle(el, kind, id) {
+  // Inline edit: replace the title div with an input, commit on Enter/blur.
+  if (el.querySelector('input')) return;
+  const old = el.textContent;
+  el.innerHTML = '';
+  const inp = document.createElement('input');
+  inp.className = 'input';
+  inp.value = old;
+  inp.style.cssText = 'font-size:var(--fs-body);font-weight:600;padding:2px 8px;max-width:340px';
+  el.appendChild(inp);
+  inp.focus(); inp.select();
+  let done = false;
+  const commit = async () => {
+    if (done) return; done = true;
+    const val = inp.value.trim();
+    el.textContent = val || old;
+    if (!val || val === old) return;
+    const url = (kind === 'song' ? '/api/songs/' : '/api/transcriptions/') + id;
+    const r = await fetch(url, { method: 'PATCH',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ title: val }) });
+    if (r.ok) toast('已重命名', 'ok');
+    else { el.textContent = old; toast('重命名失败', 'err'); }
+    refresh();
   };
-  const r = await fetch('/api/songs', {method: 'POST', headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify(body)});
-  if (!r.ok) { alert((await r.json()).detail || '提交失败'); return; }
-  abc.value = '';
+  inp.onblur = commit;
+  inp.onkeydown = e => {
+    if (e.key === 'Enter') { e.preventDefault(); commit(); }
+    if (e.key === 'Escape') { done = true; el.textContent = old; }
+  };
+}
+async function delSong(id) {
+  if (!confirm('删除这首歌？此操作不可撤销。')) return;
+  await fetch('/api/songs/' + id, { method: 'DELETE' });
   refresh();
-};
+}
+async function delTrans(id) {
+  if (!confirm('删除这条转录记录？此操作不可撤销。')) return;
+  const r = await fetch('/api/transcriptions/' + id, { method: 'DELETE' });
+  if (!r.ok) toast((await r.json()).detail || '删除失败', 'err');
+  refresh();
+}
+function useTrans(tid) {
+  fetch('/api/transcriptions/' + tid).then(r => r.json()).then(t => {
+    $('#title').value = t.name + ' cover';
+    setMode('melody');
+    $('#abc').value = t.abc || '';
+    showView('create');
+    $('#genForm').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    toast('已填入旋律，补充歌词与风格即可生成', 'ok');
+  });
+}
 
-document.getElementById('transForm').onsubmit = async e => {
+/* ---------- forms ---------- */
+$('#genForm').onsubmit = async e => {
   e.preventDefault();
-  const r = await fetch('/api/transcriptions', {method: 'POST', headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({path: transPath.value})});
-  if (!r.ok) { alert((await r.json()).detail || '提交失败'); return; }
-  refresh();
+  const btn = $('#genBtn'), prog = $('#genProgress');
+  const cot = $('#cot').value;
+  const abcVal = (cot === 'melody') ? ($('#abc').value.trim() || null) : null;
+  if (cot === 'melody' && !abcVal) { toast('Melody 模式需要 ABC 乐谱', 'err'); return; }
+  const body = {
+    title: $('#title').value, style: $('#style').value, lyrics: $('#lyrics').value,
+    cot, abc: abcVal, seed: +$('#seed').value,
+  };
+  btn.disabled = true; prog.classList.add('on');
+  try {
+    const r = await fetch('/api/songs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    if (!r.ok) { toast((await r.json()).detail || '提交失败', 'err'); return; }
+    $('#abc').value = '';
+    toast('已加入生成队列', 'ok');
+    showView('songs');
+    refresh();
+  } finally {
+    btn.disabled = false; prog.classList.remove('on');
+  }
 };
 
+$('#transForm').onsubmit = async e => {
+  e.preventDefault();
+  const btn = $('#transBtn'), prog = $('#transProgress');
+  btn.disabled = true; prog.classList.add('on');
+  try {
+    const r = await fetch('/api/transcriptions', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ path: $('#transPath').value }) });
+    if (!r.ok) { toast((await r.json()).detail || '提交失败', 'err'); return; }
+    toast('转录任务已入队', 'ok');
+    refresh();
+  } finally {
+    btn.disabled = false; prog.classList.remove('on');
+  }
+};
+
+/* ---------- about modal ---------- */
+function openAbout() { $('#aboutModal').classList.add('open'); }
+function closeAbout() { $('#aboutModal').classList.remove('open'); }
+$('#aboutModal').addEventListener('click', e => { if (e.target.id === 'aboutModal') closeAbout(); });
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeAbout(); });
+
+/* ---------- boot ---------- */
 refresh();
 setInterval(refresh, 3000);
 </script>

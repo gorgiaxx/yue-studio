@@ -35,7 +35,8 @@ CREATE TABLE IF NOT EXISTS transcriptions (
     duration REAL,
     out_dir TEXT,
     created_at REAL NOT NULL,
-    finished_at REAL
+    finished_at REAL,
+    updated_at REAL
 );
 CREATE INDEX IF NOT EXISTS idx_songs_created ON songs(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_trans_created ON transcriptions(created_at DESC);
@@ -140,6 +141,21 @@ def list_transcriptions(limit: int = 100) -> list[dict]:
 def update_transcription(tid: str, **fields) -> None:
     if not fields:
         return
+    fields = dict(fields, updated_at=now())
     sets = ", ".join(f"{k}=?" for k in fields)
     with get_db() as db:
         db.execute(f"UPDATE transcriptions SET {sets} WHERE id=?", (*fields.values(), tid))
+
+
+def delete_transcription(tid: str) -> None:
+    job = get_transcription(tid)
+    if not job:
+        return
+    out = job.get("out_dir")
+    if out:
+        p = Path(out)
+        if p.is_dir() and p.parent.name == "runs" and p.name == tid:
+            import shutil
+            shutil.rmtree(p, ignore_errors=True)
+    with get_db() as db:
+        db.execute("DELETE FROM transcriptions WHERE id=?", (tid,))

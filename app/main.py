@@ -28,10 +28,18 @@ def index():
 # ---- generation ----
 
 
+@app.get("/editor/{kind}/{sid}")   # legacy shape kept for old links
 @app.get("/editor/{sid}")
-def editor(sid: str):
-    if not db.get_song(sid):
-        raise HTTPException(404, "song not found")
+def editor(sid: str, kind: str = "song"):
+    """Serve the score editor for a SONG or a TRANSCRIPTION.
+
+    Scores are primarily owned by transcriptions (one score → many songs);
+    the song route remains for re-editing a song's own generated score."""
+    if kind not in ("song", "trans"):
+        raise HTTPException(404, "unknown editor target")
+    exists = db.get_song(sid) if kind == "song" else db.get_transcription(sid)
+    if not exists:
+        raise HTTPException(404, f"{kind} not found")
     return FileResponse(STATIC / "editor.html")
 
 
@@ -68,6 +76,19 @@ def get_song(sid: str):
     if not song:
         raise HTTPException(404, "song not found")
     return song
+
+
+
+class RenameIn(BaseModel):
+    title: str = Field(min_length=1, max_length=200)
+
+
+@app.patch("/api/songs/{sid}")
+def rename_song(sid: str, body: RenameIn):
+    if not db.get_song(sid):
+        raise HTTPException(404, "song not found")
+    db.update_song(sid, title=body.title)
+    return {"ok": True}
 
 
 @app.delete("/api/songs/{sid}")
@@ -122,6 +143,25 @@ def get_transcription(tid: str):
     return job
 
 
+@app.patch("/api/transcriptions/{tid}")
+def rename_transcription(tid: str, body: RenameIn):
+    if not db.get_transcription(tid):
+        raise HTTPException(404, "transcription not found")
+    db.update_transcription(tid, name=body.title)
+    return {"ok": True}
+
+
+@app.delete("/api/transcriptions/{tid}")
+def delete_transcription(tid: str):
+    job = db.get_transcription(tid)
+    if not job:
+        raise HTTPException(404, "transcription not found")
+    if job["status"] in ("running", "pending"):
+        raise HTTPException(409, "stop the transcription before deleting it")
+    db.delete_transcription(tid)
+    return {"ok": True}
+
+
 @app.post("/api/songs/from-transcription/{tid}")
 def song_from_transcription(tid: str, body: FromTrans):
     job = db.get_transcription(tid)
@@ -137,6 +177,17 @@ def song_from_transcription(tid: str, body: FromTrans):
 
 class AbcUpdate(BaseModel):
     abc: str = Field(min_length=1, max_length=100000)
+
+
+@app.put("/api/transcriptions/{tid}/abc")
+def update_transcription_abc(tid: str, body: AbcUpdate):
+    """Persist a hand-edited score on the transcription — the canonical copy."""
+    if not db.get_transcription(tid):
+        raise HTTPException(404, "transcription not found")
+    db.update_transcription(tid, abc=body.abc)
+    return {"ok": True}
+
+
 
 
 @app.put("/api/songs/{sid}/abc")
@@ -159,3 +210,31 @@ def regenerate_song(sid: str):
     db.update_song(sid, status="pending", error=None, audio_path=None, abc_generated=None)
     workers.enqueue_generation(sid)
     return {"ok": True}
+
+
+@app.post("/api/songs/{sid}/cancel")
+def cancel_song(sid: str):
+    """Stop a running (or dequeue a pending) song generation."""
+    song = db.get_song(sid)
+    if not song:
+        raise HTTPException(404, "song not found")
+    if song["status"] == "pending":
+        db.update_song(sid, status="cancelled", finished_at=db.now())
+        return {"ok": True, "status": "cancelled (was queued)"}
+    if not workers.request_cancel(sid):
+        raise HTTPException(409, f"song is not running (status={song['status']})")
+    return {"ok": True, "status": "cancelled"}
+
+
+@app.post("/api/transcriptions/{tid}/cancel")
+def cancel_transcription(tid: str):
+    """Stop a running (or dequeue a pending) transcription."""
+    job = db.get_transcription(tid)
+    if not job:
+        raise HTTPException(404, "transcription not found")
+    if job["status"] == "pending":
+        db.update_transcription(tid, status="cancelled", finished_at=db.now())
+        return {"ok": True, "status": "cancelled (was queued)"}
+    if not workers.request_trans_cancel(tid):
+        raise HTTPException(409, f"transcription is not running (status={job['status']})")
+    return {"ok": True, "status": "cancelled"}

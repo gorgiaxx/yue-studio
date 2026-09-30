@@ -21,3 +21,7 @@ runs/
 .DS_Store
 .idea/
 .vscode/
+
+# 钢琴音源素材（约 2.1MB，MIT 授权，来源见 scripts/fetch_soundfonts.py）
+# 首次使用前运行: python3 scripts/fetch_soundfonts.py
+app/static/soundfonts/

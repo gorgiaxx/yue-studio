@@ -51,11 +51,41 @@ def enqueue_generation(sid: str) -> None:
 def enqueue_transcription(tid: str) -> None:
     _trans_queue.put(tid)
 
+_CANCEL = threading.Event()   # set → the currently running generation aborts
+
+
+def request_cancel(sid: str) -> bool:
+    """Mark a running song as cancelled. Returns True if the song is cancellable."""
+    song = db.get_song(sid)
+    if not song or song["status"] != "running":
+        return False
+    _CANCEL.set()
+    db.update_song(sid, status="cancelled")
+    return True
+
+
+def request_trans_cancel(tid: str) -> bool:
+    """Kill the SheetSage2 subprocess for a running transcription."""
+    job = db.get_transcription(tid)
+    if not job or job["status"] != "running":
+        return False
+    proc = _trans_proc.get("proc")
+    if proc and proc.poll() is None:
+        proc.kill()
+    db.update_transcription(tid, status="cancelled")
+    return True
+
+
+_trans_proc: dict = {}
+
 
 def _run_generation(sid: str) -> None:
     song = db.get_song(sid)
     if not song:
         return
+    if song["status"] == "cancelled":
+        return                      # cancelled while queued
+    _CANCEL.clear()
     try:
         db.update_song(sid, status="running")
         with _pipe_lock:
@@ -66,18 +96,30 @@ def _run_generation(sid: str) -> None:
                 abc=song["abc"] or None,
                 cot=song["cot"],
                 seed=song["seed"],
+                cancelled=_CANCEL.is_set,   # checked each AR token & NAR step
             )
             out = OUTPUTS / f"song-{sid}"
             result.save_artifacts(out)
+        if _CANCEL.is_set():
+            db.update_song(sid, status="cancelled", finished_at=db.now())
+            print(f"[gen] {sid} cancelled")
+            return
         db.update_song(sid, status="done",
                        audio_path=str(out / "audio.flac"),
                        abc_generated=out.joinpath("score.abc").read_text(encoding="utf-8"),
                        finished_at=db.now())
+    except InterruptedError:
+        db.update_song(sid, status="cancelled", finished_at=db.now())
+        print(f"[gen] {sid} cancelled")
     except Exception as exc:  # noqa: BLE001 - worker boundary
-        db.update_song(sid, status="failed", error=f"{exc}", finished_at=db.now())
+        if _CANCEL.is_set():
+            db.update_song(sid, status="cancelled", finished_at=db.now())
+        else:
+            db.update_song(sid, status="failed", error=f"{exc}", finished_at=db.now())
         traceback.print_exc()
     finally:
         _release_pipe()
+        _CANCEL.clear()
 
 
 def _run_transcription(tid: str) -> None:
@@ -99,8 +141,15 @@ def _run_transcription(tid: str) -> None:
             "print('::RESULT::' + json.dumps({'abc': result.get('abc'), 'error': result.get('abc_error')}))\n"
         )
         venv_py = "/Volumes/intel760p/music_projects/YuE/.venv-ss2/bin/python"
-        proc = subprocess.run([venv_py, "-c", script], capture_output=True, text=True,
-                              env={**os.environ, "HF_HOME": HF_HOME})
+        _trans_proc["proc"] = subprocess.Popen([venv_py, "-c", script], stdout=subprocess.PIPE,
+                                                stderr=subprocess.PIPE, text=True,
+                                                env={**os.environ, "HF_HOME": HF_HOME})
+        stdout, stderr = _trans_proc["proc"].communicate()
+        proc = _trans_proc["proc"]
+        if proc.returncode != 0 and db.get_transcription(tid)["status"] == "cancelled":
+            print(f"[trans] {tid} cancelled")
+            return
+        proc.stdout, proc.stderr = stdout, stderr
         payload = None
         for line in proc.stdout.splitlines():
             if line.startswith("::RESULT::"):
@@ -138,9 +187,37 @@ def _worker(q, fn, name):
             q.task_done()
 
 
+def recover_interrupted_tasks() -> None:
+    """Re-queue songs/transcriptions that a restart left mid-flight.
+
+    Called once at startup before the worker threads run. Tasks in 'running'
+    or 'pending' state at boot were interrupted by a server stop (or crashed
+    before finishing) — reset them to pending and enqueue again. Everything
+    needed to rerun is persisted in SQLite (style/lyrics/abc/seed, or the
+    source audio path), so recovery is lossless.
+    """
+    from . import db as _db
+    recovered_songs = 0
+    for s in _db.list_songs(limit=1000):
+        if s["status"] in ("running", "pending"):
+            _db.update_song(s["id"], status="pending", error=None)
+            _gen_queue.put(s["id"])
+            recovered_songs += 1
+    recovered_trans = 0
+    for t in _db.list_transcriptions(limit=1000):
+        if t["status"] in ("running", "pending"):
+            _db.update_transcription(t["id"], status="pending", error=None)
+            _trans_queue.put(t["id"])
+            recovered_trans += 1
+    if recovered_songs or recovered_trans:
+        print(f"[recover] re-queued {recovered_songs} song(s), {recovered_trans} transcription(s) "
+              f"that were interrupted by restart")
+
+
 def start_workers() -> None:
     OUTPUTS.mkdir(exist_ok=True)
     (ROOT / "runs").mkdir(exist_ok=True)
+    recover_interrupted_tasks()
     threading.Thread(target=_worker, args=(_gen_queue, _run_generation, "gen"),
                      daemon=True, name="yue-gen").start()
     threading.Thread(target=_worker, args=(_trans_queue, _run_transcription, "trans"),

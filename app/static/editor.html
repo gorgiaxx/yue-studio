@@ -3,108 +3,356 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>YuE Studio — 乐谱编辑器</title>
+<title>YuE Studio — Score Editor</title>
 <script src="/static/vendor/abcjs-basic.js"></script>
+<link rel="stylesheet" href="/static/app.css">
 <style>
-  :root { --bg:#0f1115; --panel:#181b21; --line:#2a2f3a; --fg:#e8eaf0; --mut:#9aa1b0; --acc:#7c6cf0; }
-  * { box-sizing:border-box; }
-  body { margin:0; background:var(--bg); color:var(--fg); font:14px/1.5 -apple-system,"PingFang SC",sans-serif;
-    height:100vh; overflow:hidden; display:flex; flex-direction:column; }
-  header h1 { margin:0; font-size:16px; }
-  header .sub { color:var(--mut); font-size:12px; flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-  header button { background:var(--acc); color:#fff; border:0; border-radius:6px; padding:7px 14px; font:inherit; font-weight:600; cursor:pointer; }
-  header button.ghost { background:transparent; border:1px solid var(--line); color:var(--mut); font-weight:400; }
-  header button:disabled { opacity:.4; cursor:default; }
-  #wrap { flex:1; display:grid; grid-template-columns: 42% 58%; min-height:0; }
-  #codePane, #preview { border-right:1px solid var(--line); display:flex; flex-direction:column; min-height:0; }
-  #codePane .bar, #preview .bar { padding:8px 14px; border-bottom:1px solid var(--line); color:var(--mut); font-size:12px; display:flex; gap:10px; align-items:center; }
-  #status { font-weight:600; }
-  #status.err { color:#ff9aa4; }
-  #status.ok { color:#8ee6a8; }
-  #codeStack { position:relative; flex:1; min-height:0; flex-basis:0; display:flex; flex-direction:column; }
-  #codeHl { position:absolute; inset:0; pointer-events:none; overflow:hidden; padding:14px;
-    font:12px/1.6 ui-monospace,Menlo,monospace; white-space:pre; color:transparent; }
-  #codeHl mark { background:#7c6cf0; border-radius:2px; color:transparent; }
-  #abc { flex:1; width:100%; border:0; resize:none; background:transparent; color:var(--fg);
-    padding:14px; font:12px/1.6 ui-monospace,Menlo,monospace; outline:none; white-space:pre; overflow:auto;
-    min-height:0; flex-basis:0; position:relative; }
-  #abc::selection { background:#7c6cf0; color:#fff; }
-  #score { flex:1; min-height:0; flex-basis:0; overflow:auto; padding:14px; background:#fdfdf9; }
-  #score svg { display:block; margin:0 auto 18px; }
+  html, body { height: 100%; }
+  body { overflow: hidden; }
+
+  .ed { display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
+
+  /* ---------- top toolbar ---------- */
+  .ed-top {
+    flex: none; height: 52px; display: flex; align-items: center; gap: 10px;
+    padding: 0 12px; background: var(--surface); border-bottom: 1px solid var(--border);
+  }
+  .ed-title { display: flex; flex-direction: column; min-width: 0; margin-left: 2px; }
+  .ed-title .t {
+    font-size: var(--fs-head); font-weight: 600; letter-spacing: -.01em;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 46vw;
+  }
+  .ed-title .src { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--fg-3);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .ed-title .src .pill { border: 1px solid var(--border); border-radius: 20px; padding: 0 7px; color: var(--fg-2); }
+  .ed-top .spacer { flex: 1; }
+  .tb-sep { width: 1px; height: 22px; background: var(--border); margin: 0 2px; }
+  .save-state { font-size: var(--fs-meta); color: var(--fg-3); min-width: 96px; text-align: right; }
+  .save-state.dirty { color: var(--warning); }
+  .save-state.saving { color: var(--accent); }
+  .save-state.saved { color: var(--success); }
+  .save-state.err { color: var(--error); }
+
+  /* ---------- transport ---------- */
+  .ed-transport {
+    flex: none; display: none; align-items: center; gap: 14px;
+    height: 46px; padding: 0 16px; background: var(--surface-2);
+    border-bottom: 1px solid var(--border);
+  }
+  .ed-transport .tplay {
+    width: 34px; height: 34px; flex: none; border-radius: 50%;
+    background: var(--accent); border: 1px solid var(--accent); color: #fff;
+    display: grid; place-items: center; cursor: pointer; transition: all var(--t-fast);
+  }
+  .ed-transport .tplay:hover { background: var(--accent-hover); }
+  .ed-transport .tplay svg { width: 15px; height: 15px; }
+  #seek {
+    flex: 1; height: 5px; -webkit-appearance: none; appearance: none;
+    background: var(--border); border-radius: 3px; cursor: pointer;
+  }
+  #seek::-webkit-slider-thumb { -webkit-appearance: none; width: 13px; height: 13px; border-radius: 50%; background: var(--play); cursor: grab; }
+  #seek::-moz-range-thumb { width: 13px; height: 13px; border: 0; border-radius: 50%; background: var(--play); }
+  #playTime { font: var(--fs-meta) var(--font-mono); color: var(--fg-2); min-width: 96px; text-align: right; }
+  .transport-label { font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--fg-3); }
+
+  /* ---------- two-pane workspace ---------- */
+  #wrap { flex: 1; display: grid; grid-template-columns: 42% 58%; min-height: 0; }
+  #codePane, #preview { display: flex; flex-direction: column; min-height: 0; min-width: 0; }
+  #codePane { border-right: 1px solid var(--border); background: var(--bg); }
+  #preview { background: var(--surface); }
+
+  .pane-bar {
+    flex: none; height: 34px; display: flex; align-items: center; gap: 10px;
+    padding: 0 14px; border-bottom: 1px solid var(--border-soft);
+    font-size: var(--fs-meta); color: var(--fg-3); background: var(--surface);
+  }
+  #preview .pane-bar { background: var(--surface-2); }
+  .pane-bar .label { font-size: 11px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--fg-2); }
+  .pane-bar .spacer { flex: 1; }
+
+  #status { font-weight: 600; color: var(--fg-2); }
+  #status.err { color: var(--error); }
+  #status.ok  { color: var(--success); }
+
+  /* ABC code editor */
+  #codeStack { position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; }
+  #codeHl {
+    position: absolute; inset: 0; pointer-events: none; overflow: hidden; padding: 14px 16px;
+    font: 12.5px/1.7 var(--font-mono); white-space: pre; color: transparent;
+  }
+  #codeHl mark { background: var(--accent); border-radius: 2px; color: transparent; }
+  #abc {
+    flex: 1; width: 100%; border: 0; resize: none; background: transparent; color: var(--fg);
+    padding: 14px 16px; font: 12.5px/1.7 var(--font-mono); outline: none; white-space: pre; overflow: auto;
+    min-height: 0; position: relative; caret-color: var(--cursor); tab-size: 2;
+  }
+  #abc::selection { background: var(--accent); color: #fff; }
+
+  /* score canvas — soft paper */
+  #score { flex: 1; min-height: 0; overflow: auto; padding: 18px; background: var(--paper); }
+  #score svg { display: block; margin: 0 auto 18px; }
   #score svg .abcjs-staff, #score svg .abcjs-note, #score svg .abcjs-rest,
-  #score svg path, #score svg text { fill:#1a1a1a; }
-  #score svg .playing-note path { fill:#7c6cf0 !important; }
-  #score svg .score-cursor path { fill:#e06c2f !important; }
-  #score svg .score-cursor { filter: drop-shadow(0 0 3px rgba(224,108,47,.8)); }
-  #score svg .selected-note path { fill:#2f9e6c !important; }
-  #score svg .selected-note { filter: drop-shadow(0 0 3px rgba(47,158,108,.9)); }
-  #helpPanel { position:fixed; inset:0; display:none; align-items:center; justify-content:center;
-    background:rgba(0,0,0,.55); z-index:200; }
-  .helpCard { background:var(--panel); border:1px solid var(--line); border-radius:12px;
-    padding:20px 26px; max-width:460px; box-shadow:0 16px 48px rgba(0,0,0,.6); }
-  .helpCard h3 { margin:0 0 14px; font-size:15px; display:flex; justify-content:space-between; align-items:center; }
-  .helpCard table { border-collapse:collapse; width:100%; }
-  .helpCard td { padding:5px 10px; font-size:13px; border-bottom:1px solid var(--line); }
-  .helpCard td:first-child { color:var(--acc); font-weight:600; white-space:nowrap; width:130px; }
-  .helpClose { background:transparent; border:0; color:var(--mut); font-size:16px; cursor:pointer; }
-  #playerBar { display:none; align-items:center; gap:10px; padding:6px 14px;
-    border-bottom:1px solid var(--line); }
-  #playerBar button { background:var(--acc); color:#fff; border:0; border-radius:6px;
-    padding:5px 14px; font:inherit; font-weight:600; cursor:pointer; }
-  #playerBar button.ghost { background:transparent; border:1px solid var(--line); color:var(--mut); }
-  #seek { flex:1; height:6px; -webkit-appearance:none; appearance:none; background:var(--line);
-    border-radius:3px; cursor:pointer; }
-  #seek::-webkit-slider-thumb { -webkit-appearance:none; width:14px; height:14px;
-    border-radius:50%; background:var(--acc); cursor:grab; }
-  #playTime { font:12px ui-monospace,monospace; color:var(--mut); min-width:90px; text-align:right; }
-  #ctxMenu { position:fixed; display:none; background:var(--panel); border:1px solid var(--line);
-    border-radius:8px; padding:6px; z-index:100; min-width:190px; box-shadow:0 8px 24px rgba(0,0,0,.5); }
-  #ctxMenu button { display:block; width:100%; text-align:left; background:transparent; color:var(--fg);
-    border:0; border-radius:5px; padding:7px 12px; font:13px inherit; cursor:pointer; }
-  .note-hl { cursor:grab; }
-  .abcjs-lyric { font-size: 11px; fill: var(--mut); }
-  #toast { position:fixed; bottom:18px; left:50%; transform:translateX(-50%); background:#22262e;
-    border:1px solid var(--line); border-radius:8px; padding:9px 18px; display:none; z-index:110; }
+  #score svg path, #score svg text { fill: var(--paper-line); }
+  #score svg .abcjs-lyric text, #score svg text.abcjs-lyric { fill: #6a6a6a; }
+  /* note state colours: selected = violet, playback = cyan, edit cursor = amber */
+  #score svg .selected-note path { fill: var(--accent) !important; }
+  #score svg .selected-note { filter: drop-shadow(0 0 3px rgba(124,108,240,.85)); }
+  #score svg .playing-note path { fill: var(--play) !important; }
+  #score svg .playing-note { filter: drop-shadow(0 0 3px rgba(56,189,248,.8)); }
+  #score svg .score-cursor path { fill: var(--cursor) !important; }
+  #score svg .score-cursor { filter: drop-shadow(0 0 2px rgba(224,163,62,.9)); }
+  .note-hl { cursor: grab; }
+  .abcjs-lyric { font-size: 11px; fill: #6a6a6a; }
+
+  /* ---------- footer status bar ---------- */
+  .ed-foot {
+    flex: none; height: 28px; display: flex; align-items: center; gap: 16px;
+    padding: 0 14px; background: var(--surface); border-top: 1px solid var(--border);
+    font-size: 11px; color: var(--fg-3); overflow: hidden; white-space: nowrap;
+  }
+  .ed-foot kbd {
+    font: 10px var(--font-mono); background: var(--surface-2); border: 1px solid var(--border);
+    border-radius: 3px; padding: 1px 5px; color: var(--fg-2);
+  }
+  .ed-foot .spacer { flex: 1; }
+
+  /* ---------- context menu ---------- */
+  #ctxMenu {
+    position: fixed; display: none; background: var(--surface-2); border: 1px solid var(--border-strong);
+    border-radius: var(--r-md); padding: 5px; z-index: 200; min-width: 200px; box-shadow: var(--shadow-pop);
+  }
+  #ctxMenu .ctx-group {
+    font-size: 10px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase;
+    color: var(--fg-3); padding: 6px 10px 3px;
+  }
+  #ctxMenu .ctx-item {
+    display: flex; align-items: center; justify-content: space-between; gap: 16px; width: 100%;
+    background: transparent; color: var(--fg); border: 0; border-radius: var(--r-sm);
+    padding: 6px 10px; font: var(--fs-ctrl) var(--font-ui); cursor: pointer; text-align: left;
+  }
+  #ctxMenu .ctx-item:hover { background: var(--accent); color: #fff; }
+  #ctxMenu .ctx-item kbd { font: 11px var(--font-mono); color: var(--fg-3); }
+  #ctxMenu .ctx-item:hover kbd { color: rgba(255,255,255,.75); }
+  #ctxMenu .sep { height: 1px; background: var(--border); margin: 4px 6px; }
+
+  /* ---------- drag ghost ---------- */
+  #dragGhost {
+    position: fixed; display: none; z-index: 250; pointer-events: none;
+    background: var(--accent); color: #fff; font: 600 12px var(--font-mono);
+    padding: 3px 9px; border-radius: 20px; box-shadow: var(--shadow-sm);
+  }
+
+  /* ---------- toast (single element, JS toggles display) ---------- */
+  #toast {
+    position: fixed; bottom: 40px; left: 50%; transform: translateX(-50%);
+    background: var(--surface-2); border: 1px solid var(--border-strong); color: var(--fg);
+    border-radius: var(--r-md); padding: 9px 18px; display: none; z-index: 350;
+    font-size: var(--fs-ctrl); box-shadow: var(--shadow-pop);
+  }
+
+  /* ---------- help: command-palette style ---------- */
+  #helpPanel {
+    position: fixed; inset: 0; display: none; align-items: flex-start; justify-content: center;
+    padding-top: 12vh; background: rgba(6,7,9,.6); backdrop-filter: blur(2px); z-index: 300;
+  }
+  .helpCard {
+    background: var(--surface); border: 1px solid var(--border-strong); border-radius: var(--r-lg);
+    width: 520px; max-width: calc(100% - 40px); box-shadow: var(--shadow-pop); overflow: hidden;
+  }
+  .helpCard .hd {
+    display: flex; align-items: center; gap: 10px; padding: 14px 16px; border-bottom: 1px solid var(--border-soft);
+  }
+  .helpCard .hd h3 { margin: 0; font-size: var(--fs-head); font-weight: 600; flex: 1; }
+  .helpCard .body { padding: 8px 16px 16px; max-height: 62vh; overflow: auto; }
+  .helpCard .grp { font-size: 10px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase;
+    color: var(--fg-3); padding: 12px 0 6px; }
+  .helpCard .sc { display: flex; align-items: center; gap: 14px; padding: 6px 0; font-size: var(--fs-ctrl); color: var(--fg-2); }
+  .helpCard .sc .keys { margin-left: auto; display: flex; gap: 4px; }
+  .helpCard kbd {
+    font: 11px var(--font-mono); background: var(--surface-2); border: 1px solid var(--border);
+    border-bottom-width: 2px; border-radius: var(--r-sm); padding: 2px 7px; color: var(--fg);
+  }
+  .helpCard .foot { padding: 10px 16px; border-top: 1px solid var(--border-soft); font-size: var(--fs-meta); color: var(--fg-3); }
+
+  /* ---------- regenerate drawer ---------- */
+  #spawnPanel {
+    position: fixed; inset: 0; display: none; justify-content: flex-end;
+    background: rgba(6,7,9,.5); backdrop-filter: blur(2px); z-index: 300;
+  }
+  .drawer {
+    width: 380px; max-width: 100%; height: 100%; background: var(--surface);
+    border-left: 1px solid var(--border); box-shadow: var(--shadow-pop);
+    display: flex; flex-direction: column; animation: drawer-in var(--t-med);
+  }
+  @keyframes drawer-in { from { transform: translateX(20px); opacity: .6; } to { transform: none; opacity: 1; } }
+  .drawer .hd { display: flex; align-items: center; gap: 10px; padding: 16px; border-bottom: 1px solid var(--border-soft); }
+  .drawer .hd h3 { margin: 0; font-size: var(--fs-head); font-weight: 600; flex: 1; }
+  .drawer .body { flex: 1; overflow: auto; padding: 16px; }
+  .drawer .ft { display: flex; gap: 10px; padding: 14px 16px; border-top: 1px solid var(--border-soft); }
+  .drawer .ft .btn { flex: 1; }
+
+  @media (max-width: 900px) {
+    #wrap { grid-template-columns: 1fr; grid-template-rows: 40% 60%; }
+    #codePane { border-right: 0; border-bottom: 1px solid var(--border); }
+    .ed-title .t { max-width: 34vw; }
+    .save-state { display: none; }
+  }
 </style>
 </head>
 <body>
-<header>
-  <button class="ghost" onclick="location.href='/'">← 返回</button>
-  <h1>🎼 乐谱编辑器</h1>
-  <span class="sub" id="songTitle"></span>
-  <button class="ghost" id="btnReset">还原初始乐谱</button>
-  <button class="ghost" id="btnUndo" title="撤销 (Cmd/Ctrl+Z)">↩ 撤销</button>
-  <button class="ghost" id="btnRedo" title="重做 (Cmd/Ctrl+Shift+Z)">↪ 重做</button>
-  <button class="ghost" id="btnSave">保存乐谱</button>
-  <button class="ghost" id="btnHelp" title="快捷键 (?)">⌨ 快捷键</button>
-  <button id="btnRegen" disabled>用此乐谱重新生成 →</button>
-</header>
-<div id="wrap">
-  <div id="codePane">
-    <div class="bar"><span id="status">渲染中…</span><span class="hint">编辑代码实时预览</span></div>
-    <div id="codeStack">
-      <div id="codeHl"></div>
-      <textarea id="abc" spellcheck="false"></textarea>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs>
+  <symbol id="i-back" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5l-7 7 7 7"/></symbol>
+  <symbol id="i-undo" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9h11a5 5 0 0 1 0 10H9M4 9l4-4M4 9l4 4"/></symbol>
+  <symbol id="i-redo" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20 9H9a5 5 0 0 0 0 10h6M20 9l-4-4M20 9l-4 4"/></symbol>
+  <symbol id="i-reset" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7M3 4v5h5"/></symbol>
+  <symbol id="i-save" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 4h11l3 3v13H5z"/><path d="M8 4v5h7M8 20v-6h8v6"/></symbol>
+  <symbol id="i-keys" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="6" width="19" height="12" rx="2"/><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M8 14h8"/></symbol>
+  <symbol id="i-play" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5.5v13l11-6.5z"/></symbol>
+  <symbol id="i-spark" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8z"/></symbol>
+  <symbol id="i-close" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></symbol>
+</defs></svg>
+
+<div class="ed">
+  <!-- ============ TOP TOOLBAR ============ -->
+  <header class="ed-top">
+    <button class="btn-icon" onclick="location.href='/'" title="Back"><svg><use href="#i-back"/></svg></button>
+    <div class="ed-title">
+      <span class="t" id="songTitle">Score Editor</span>
+      <span class="src"><span class="pill" id="sourceTag">Loading…</span></span>
+    </div>
+    <span class="spacer"></span>
+    <button class="btn-icon" id="btnUndo" title="Undo (⌘/Ctrl+Z)"><svg><use href="#i-undo"/></svg></button>
+    <button class="btn-icon" id="btnRedo" title="Redo (⌘/Ctrl+⇧Z)"><svg><use href="#i-redo"/></svg></button>
+    <button class="btn-icon" id="btnReset" title="Reset to original score"><svg><use href="#i-reset"/></svg></button>
+    <span class="tb-sep"></span>
+    <span class="save-state saved" id="saveStatus">Saved</span>
+    <button class="btn btn-sm" id="btnSave" title="Save (⌘/Ctrl+S)"><svg><use href="#i-save"/></svg> Save</button>
+    <button class="btn-icon" id="btnHelp" title="Keyboard shortcuts (?)"><svg><use href="#i-keys"/></svg></button>
+    <span class="tb-sep"></span>
+    <button class="btn btn-primary btn-sm" id="btnRegen" disabled><svg><use href="#i-spark"/></svg> Regenerate from Score</button>
+  </header>
+
+  <!-- ============ TRANSPORT ============ -->
+  <div id="playerBar" class="ed-transport">
+    <span class="transport-label">Transport</span>
+    <button id="btnPlay" class="tplay" title="Play/Pause (Space)"><svg><use href="#i-play"/></svg></button>
+    <input type="range" id="seek" min="0" max="1000" value="0" step="1">
+    <span id="playTime">0:00 / 0:00</span>
+  </div>
+
+  <!-- ============ WORKSPACE ============ -->
+  <div id="wrap">
+    <div id="codePane">
+      <div class="pane-bar">
+        <span class="label">ABC Source</span>
+        <span class="spacer"></span>
+        <span id="status">渲染中…</span>
+      </div>
+      <div id="codeStack">
+        <div id="codeHl"></div>
+        <textarea id="abc" spellcheck="false"></textarea>
+      </div>
+    </div>
+    <div id="preview">
+      <div class="pane-bar">
+        <span class="label">Score</span>
+        <span class="spacer"></span>
+        <span>左键拖音符上下改音高 · 右键打开菜单 · 双击试听</span>
+      </div>
+      <div id="score"></div>
     </div>
   </div>
-  <div id="preview">
-    <div class="bar"><span class="hint">左键拖音符上下 = 改音高 · 右键音符 = 时值/八度/休止/删除 · 双击音符 = 试听</span></div>
-    <div id="playerBar">
-      <button id="btnPlay">▶ 播放</button>
-      <input type="range" id="seek" min="0" max="1000" value="0" step="1">
-      <span id="playTime">0:00 / 0:00</span>
-    </div>
-    <div id="score"></div>
-  </div>
+
+  <!-- ============ FOOTER ============ -->
+  <footer class="ed-foot">
+    <span><kbd>←</kbd><kbd>→</kbd> 选音符</span>
+    <span><kbd>↑</kbd><kbd>↓</kbd> 半音</span>
+    <span><kbd>⇧</kbd>+<kbd>↑↓</kbd> 八度</span>
+    <span><kbd>1-8</kbd> 时值</span>
+    <span><kbd>R</kbd> 重复</span>
+    <span><kbd>⌫</kbd> 删除</span>
+    <span><kbd>Space</kbd> 播放</span>
+    <span class="spacer"></span>
+    <span><kbd>?</kbd> 全部快捷键</span>
+  </footer>
 </div>
+
 <div id="ctxMenu"></div>
 <div id="dragGhost"></div>
 <div id="toast"></div>
+
+<!-- ============ REGENERATE DRAWER ============ -->
+<div id="spawnPanel">
+  <div class="drawer">
+    <div class="hd">
+      <h3>Generate from Current Score</h3>
+      <button class="btn-icon" id="spawnX" title="Close"><svg><use href="#i-close"/></svg></button>
+    </div>
+    <div class="body">
+      <div class="field">
+        <label class="field-label" for="spawnTitle">Title</label>
+        <input class="input" type="text" id="spawnTitle" placeholder="My cover">
+      </div>
+      <div class="field">
+        <label class="field-label" for="spawnStyle">Style</label>
+        <input class="input" type="text" id="spawnStyle" placeholder="English, jazz-funk, warm vocal, Rhodes">
+      </div>
+      <div class="field">
+        <label class="field-label" for="spawnLyrics">Lyrics</label>
+        <textarea class="textarea" id="spawnLyrics" style="min-height:140px;font-family:var(--font-mono);font-size:13px" placeholder="[Verse]…&#10;[Chorus]…"></textarea>
+      </div>
+      <div class="field" style="margin-bottom:0">
+        <label class="field-label" for="spawnSeed">Seed</label>
+        <input class="input" type="number" id="spawnSeed" value="831001" style="max-width:180px">
+      </div>
+    </div>
+    <div class="ft">
+      <button class="btn" id="spawnCancel">Cancel</button>
+      <button class="btn btn-primary" id="spawnGo"><svg><use href="#i-spark"/></svg> Generate Song</button>
+    </div>
+  </div>
+</div>
+
+<!-- ============ HELP PALETTE ============ -->
+<div id="helpPanel">
+  <div class="helpCard">
+    <div class="hd">
+      <svg style="width:16px;height:16px;color:var(--fg-3)"><use href="#i-keys"/></svg>
+      <h3>Keyboard Shortcuts</h3>
+      <button class="btn-icon" onclick="toggleHelp()"><svg><use href="#i-close"/></svg></button>
+    </div>
+    <div class="body">
+      <div class="grp">Navigation</div>
+      <div class="sc"><span>选择前一个 / 下一个音符</span><span class="keys"><kbd>←</kbd><kbd>→</kbd></span></div>
+      <div class="sc"><span>从选中音符播放 / 暂停</span><span class="keys"><kbd>Space</kbd></span></div>
+      <div class="grp">Pitch</div>
+      <div class="sc"><span>音高 ±1 半音</span><span class="keys"><kbd>↑</kbd><kbd>↓</kbd></span></div>
+      <div class="sc"><span>升 / 降八度</span><span class="keys"><kbd>⇧</kbd><kbd>↑</kbd><kbd>↓</kbd></span></div>
+      <div class="grp">Duration &amp; editing</div>
+      <div class="sc"><span>时值：三十二分 … 二分音符</span><span class="keys"><kbd>1</kbd>–<kbd>8</kbd></span></div>
+      <div class="sc"><span>重复当前音符</span><span class="keys"><kbd>R</kbd></span></div>
+      <div class="sc"><span>删除（转为休止）</span><span class="keys"><kbd>⌫</kbd></span></div>
+      <div class="grp">File</div>
+      <div class="sc"><span>撤销 / 重做</span><span class="keys"><kbd>⌘</kbd><kbd>Z</kbd><kbd>⇧</kbd></span></div>
+      <div class="sc"><span>保存乐谱</span><span class="keys"><kbd>⌘</kbd><kbd>S</kbd></span></div>
+      <div class="grp">Pointer</div>
+      <div class="sc"><span>上下拖动改音高</span><span class="keys"><kbd>Drag</kbd></span></div>
+      <div class="sc"><span>菜单：音高 / 八度 / 时值 / 休止 / 删除</span><span class="keys"><kbd>Right-click</kbd></span></div>
+      <div class="sc"><span>试听</span><span class="keys"><kbd>Double-click</kbd></span></div>
+    </div>
+    <div class="foot">先点击谱面任意音符进入编辑模式，快捷键即生效；在代码区输入时保持原生文本编辑。</div>
+  </div>
+</div>
+
 <script>
-const sid = location.pathname.split('/')[2];
+// URL shapes: /editor/trans/{tid} (score owned by a transcription) or /editor/{sid} (song).
+const pathParts = location.pathname.split('/').filter(Boolean);
+const MODE = pathParts[1] === 'trans' ? 'trans' : 'song';
+const sid = pathParts[MODE === 'trans' ? 2 : 1];
 let originalAbc = '';
 let lastGood = null;          // last tune object that rendered successfully
 let saveTimer = null;
+let transMeta = null;         // for MODE==='trans': transcription info (name, source)
 
 const $ = s => document.querySelector(s);
 const statusEl = $('#status');
@@ -116,14 +364,43 @@ function toast(msg) {
   clearTimeout(toastTimer); toastTimer = setTimeout(() => t.style.display = 'none', 1800);
 }
 
+// ---------- save-state indicator ----------
+let savedAbc = '';   // last value confirmed on the server
+function setSaveState(state) {
+  const el = $('#saveStatus');
+  if (!el) return;
+  const map = { saved: ['Saved', 'saved'], dirty: ['Unsaved changes', 'dirty'],
+                saving: ['Saving…', 'saving'], err: ['Save failed', 'err'] };
+  const [text, cls] = map[state] || map.saved;
+  el.textContent = text;
+  el.className = 'save-state ' + cls;
+}
+// Programmatic edits (keyboard, menu, drag, undo) don't fire `input`, so compare
+// against the saved baseline instead of relying on input events alone.
+function refreshSaveState() {
+  setSaveState($('#abc').value === savedAbc ? 'saved' : 'dirty');
+}
+
 // ---------- load ----------
 async function loadSong() {
-  const s = await fetch('/api/songs/' + sid).then(r => r.json());
-  $('#songTitle').textContent = s.title + ' · ' + s.style;
-  originalAbc = s.abc_generated || s.abc || '';
+  if (MODE === 'trans') {
+    const t = await fetch('/api/transcriptions/' + sid).then(r => r.json());
+    transMeta = t;
+    $('#songTitle').textContent = t.name;
+    $('#sourceTag').textContent = 'Transcription' + (t.key ? ' · ' + t.key : '');
+    originalAbc = t.abc || '';
+    $('#btnRegen').lastChild.textContent = ' Create Song from Score';
+    $('#btnRegen').disabled = !originalAbc;
+  } else {
+    const s = await fetch('/api/songs/' + sid).then(r => r.json());
+    $('#songTitle').textContent = s.title;
+    $('#sourceTag').textContent = 'Song · ' + s.style;
+    originalAbc = s.abc_generated || s.abc || '';
+    $('#btnRegen').disabled = !(s.cot === 'melody' || s.cot === 'full');
+  }
   $('#abc').value = originalAbc;
+  savedAbc = originalAbc;
   render();
-  $('#btnRegen').disabled = !(s.cot === 'melody' || s.cot === 'full');
 }
 
 
@@ -475,6 +752,11 @@ document.addEventListener('keydown', e => {
   if (meta && e.key.toLowerCase() === 's') { e.preventDefault(); $('#btnSave').click(); return; }
   // Help: ?
   if (e.key === '?' && !inText) { e.preventDefault(); toggleHelp(); return; }
+  // Escape closes help / drawer
+  if (e.key === 'Escape') {
+    if ($('#helpPanel').style.display === 'flex') { toggleHelp(); return; }
+    if ($('#spawnPanel').style.display === 'flex') { $('#spawnPanel').style.display = 'none'; return; }
+  }
   if (inText) return;   // textarea keys stay native
 
   const spans = orderedMusicSpans();
@@ -548,7 +830,11 @@ function pushUndoSilent() {
   preTyping = $('#abc').value;
 }
 
-$('#abc').addEventListener('input', () => { scheduleRender(); });
+$('#abc').addEventListener('input', () => { scheduleRender(); updateCodeHl(); setSaveState('dirty'); });
+$('#abc').addEventListener('scroll', () => {
+  const hl = $('#codeHl');
+  if (hl) { hl.scrollTop = $('#abc').scrollTop; hl.scrollLeft = $('#abc').scrollLeft; }
+});
 
 // ---------- code → score cursor sync ----------
 // Moving the caret in the textarea positions the orange score cursor on the staff,
@@ -569,13 +855,14 @@ document.addEventListener('selectionchange', () => {
   // The playhead (syncCodeFromEvent) also moves the selection; don't let it
   // overwrite the user's caret while a tune is playing.
   if (synthCtl && synthCtl.isRunning) return;
-  if (document.activeElement === $('#abc')) syncScoreCursorFromCaret();
+  if (document.activeElement === $('#abc')) { syncScoreCursorFromCaret(); updateCodeHl(); }
 });
 
 // ---------- interaction ----------
 let activeSpan = null;   // char range of last-clicked note/rest
 
 function render() {
+  refreshSaveState();
   const text = $('#abc').value;
   const tuneBook = ABCJS.parseOnly(text);
   if (!tuneBook.length || tuneBook[0].error) {
@@ -635,25 +922,36 @@ function showMenu(x, y) {
   const isNote = span.info.kind === 'note';
   const isRest = span.info.kind === 'rest';
   menu.innerHTML = '';
-  const add = (label, fn) => {
+  const group = (label) => {
+    const g = document.createElement('div'); g.className = 'ctx-group'; g.textContent = label; menu.appendChild(g);
+  };
+  const sep = () => { const d = document.createElement('div'); d.className = 'sep'; menu.appendChild(d); };
+  const add = (label, fn, shortcut) => {
     const b = document.createElement('button');
-    b.textContent = label;
+    b.className = 'ctx-item';
+    const s = document.createElement('span'); s.textContent = label; b.appendChild(s);
+    if (shortcut) { const k = document.createElement('kbd'); k.textContent = shortcut; b.appendChild(k); }
     b.onclick = () => { pushUndo(); fn(); menu.style.display = 'none'; render(); };
     menu.appendChild(b);
   };
-  add('音高 +1 半音', () => isNote && shiftPitch(span, 1));
-  add('音高 −1 半音', () => isNote && shiftPitch(span, -1));
-  const sep1 = document.createElement('div'); sep1.className = 'sep'; menu.appendChild(sep1);
-  add('升高八度', () => isNote && shiftPitch(span, 12));
-  add('降低八度', () => isNote && shiftPitch(span, -12));
-  const sep2 = document.createElement('div'); sep2.className = 'sep'; menu.appendChild(sep2);
-  add('时值 ×2', () => scaleDur(span, 2));
-  add('时值 ÷2', () => scaleDur(span, .5));
-  const sep3 = document.createElement('div'); sep3.className = 'sep'; menu.appendChild(sep3);
-  add(isRest ? '转为音符 c' : '转为休止符', () => toggleRest(span));
-  if (isNote) add('删除（变休止）', () => deleteNote(span));
+  if (isNote) {
+    group('Pitch');
+    add('Transpose Up', () => shiftPitch(span, 1), '↑');
+    add('Transpose Down', () => shiftPitch(span, -1), '↓');
+    sep();
+    group('Octave');
+    add('Octave Up', () => shiftPitch(span, 12), '⇧↑');
+    add('Octave Down', () => shiftPitch(span, -12), '⇧↓');
+    sep();
+  }
+  group('Duration');
+  add('Double', () => scaleDur(span, 2));
+  add('Half', () => scaleDur(span, .5));
+  sep();
+  add(isRest ? 'Convert to Note' : 'Convert to Rest', () => toggleRest(span));
+  if (isNote) add('Delete', () => deleteNote(span), '⌫');
   menu.style.display = 'block';
-  menu.style.left = Math.min(x, innerWidth - 210) + 'px';
+  menu.style.left = Math.min(x, innerWidth - 220) + 'px';
   menu.style.top = Math.min(y, innerHeight - menu.offsetHeight - 10) + 'px';
 }
 document.addEventListener('mousedown', e => { if (!menu.contains(e.target)) menu.style.display = 'none'; });
@@ -778,6 +1076,15 @@ async function ensureSynth() {
   try { playVisualObj.setTiming(); } catch (e) {}   // populates noteTimings + totalTime
   // Local FluidR3 piano samples (89 files) — abcjs's default CDN is unreachable from
   // some networks, which killed playback with "Can't load sound at paulrosen.github.io".
+  // Run scripts/fetch_soundfonts.py once to populate the cache (MIT, see README).
+  try {
+    const probe = await fetch('/static/soundfonts/FluidR3_GM/acoustic_grand_piano-mp3/C4.mp3',
+                              { method: 'HEAD' });
+    if (!probe.ok) throw 0;
+  } catch (e) {
+    toast('缺少钢琴音源：请先运行 python3 scripts/fetch_soundfonts.py', 'err');
+    throw new Error('soundfont cache missing — run scripts/fetch_soundfonts.py');
+  }
   await synthCtl.init({ visualObj: playVisualObj,
     options: { soundFontUrl: '/static/soundfonts/FluidR3_GM/' } });
   $('#playerBar').style.display = 'flex';
@@ -805,6 +1112,10 @@ function currentPos(ctl) {
   return 0;
 }
 
+const PLAY_ICON = '<svg><use href="#i-play"/></svg>';
+const PAUSE_ICON = '<svg viewBox="0 0 24 24" fill="currentColor"><rect x="7" y="5" width="3.5" height="14" rx="1"/><rect x="13.5" y="5" width="3.5" height="14" rx="1"/></svg>';
+function setPlayIcon(playing) { $('#btnPlay').innerHTML = playing ? PAUSE_ICON : PLAY_ICON; }
+
 function updatePlayUI() {
   if (!synthCtl) return;
   const dur = synthCtl.duration || 0;
@@ -818,7 +1129,7 @@ function playTick() {
   if (synthCtl && synthCtl.isRunning) {
     playTimer = setTimeout(playTick, 200);
   } else {
-    $('#btnPlay').textContent = '▶ 播放';
+    setPlayIcon(false);
     clearTimeout(playTimer);
   }
 }
@@ -916,7 +1227,7 @@ $('#btnPlay').onclick = async () => {
       // abcjs pause() stores the absolute position itself; no override needed.
       ctl.pause();
       stopHighlight();
-      $('#btnPlay').textContent = '▶ 播放';
+      setPlayIcon(false);
       updatePlayUI();
     }
     else {
@@ -926,7 +1237,7 @@ $('#btnPlay').onclick = async () => {
       ctl.pausedTimeSec = resume;
       ctl.start();   // resumes from pausedTimeSec; startTimeSec is absolute
       startHighlight(resume);
-      $('#btnPlay').textContent = '⏸ 暂停';
+      setPlayIcon(true);
       clearTimeout(playTimer);
       playTick();
     }
@@ -989,19 +1300,57 @@ document.addEventListener('dblclick', e => {
 $('#btnUndo').onclick = () => doUndo();
 $('#btnRedo').onclick = () => doRedo();
 $('#btnSave').onclick = async () => {
-  const r = await fetch(`/api/songs/${sid}/abc`, { method: 'PUT',
+  setSaveState('saving');
+  const url = MODE === 'trans' ? `/api/transcriptions/${sid}/abc` : `/api/songs/${sid}/abc`;
+  const r = await fetch(url, { method: 'PUT',
     headers: {'Content-Type': 'application/json'},
     body: JSON.stringify({ abc: $('#abc').value }) });
+  if (r.ok) savedAbc = $('#abc').value;
+  setSaveState(r.ok ? 'saved' : 'err');
   toast(r.ok ? '已保存' : '保存失败');
 };
-$('#btnReset').onclick = () => { if (confirm('放弃所有修改？')) { $('#abc').value = originalAbc; render(); } };
+$('#btnReset').onclick = () => { if (confirm('放弃所有修改，还原初始乐谱？')) { $('#abc').value = originalAbc; render(); } };
 $('#btnRegen').onclick = async () => {
-  await fetch(`/api/songs/${sid}/abc`, { method: 'PUT',
+  const abc = $('#abc').value;
+  if (MODE === 'trans') {
+    // Save the (possibly edited) score on the transcription, then open a small
+    // dialog for style/lyrics to spawn a NEW song from this score.
+    const r = await fetch(`/api/transcriptions/${sid}/abc`, { method: 'PUT',
+      headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ abc }) });
+    if (!r.ok) { toast('保存失败'); return; }
+    openSpawnDialog();
+  } else {
+    await fetch(`/api/songs/${sid}/abc`, { method: 'PUT',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ abc }) });
+    const r = await fetch(`/api/songs/${sid}/regenerate`, { method: 'POST' });
+    if (r.ok) { savedAbc = abc; setSaveState('saved'); toast('已加入生成队列，回主页查看进度'); }
+    else toast('重生成失败：' + (await r.json()).detail);
+  }
+};
+
+// ---------- spawn-new-song dialog (transcription mode) ----------
+function openSpawnDialog() {
+  $('#spawnPanel').style.display = 'flex';
+}
+$('#spawnCancel').onclick = () => { $('#spawnPanel').style.display = 'none'; };
+$('#spawnX').onclick = () => { $('#spawnPanel').style.display = 'none'; };
+$('#spawnPanel').addEventListener('mousedown', e => { if (e.target.id === 'spawnPanel') $('#spawnPanel').style.display = 'none'; });
+$('#spawnGo').onclick = async () => {
+  const title = $('#spawnTitle').value || ((transMeta ? transMeta.name + ' cover' : '新歌曲'));
+  const style = $('#spawnStyle').value;
+  const lyrics = $('#spawnLyrics').value;
+  if (!style.trim() || !lyrics.trim()) { toast('风格与歌词必填'); return; }
+  const seed = parseInt($('#spawnSeed').value) || 831001;
+  const r = await fetch(`/api/songs/from-transcription/${sid}`, { method: 'POST',
     headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({ abc: $('#abc').value }) });
-  const r = await fetch(`/api/songs/${sid}/regenerate`, { method: 'POST' });
-  if (r.ok) toast('已加入生成队列，回主页查看进度');
-  else toast('重生成失败：' + (await r.json()).detail);
+    body: JSON.stringify({ title, style, lyrics, seed }) });
+  if (r.ok) {
+    $('#spawnPanel').style.display = 'none';
+    toast('已加入生成队列');
+  } else {
+    toast('生成失败：' + (await r.json()).detail);
+  }
 };
 
 // autosave draft locally every 2s when dirty
@@ -1009,32 +1358,13 @@ $('#abc').addEventListener('input', () => {
   clearTimeout(saveTimer);
   saveTimer = setTimeout(() => localStorage.setItem('draft-' + sid, $('#abc').value), 2000);
 });
-const draft = localStorage.getItem('draft-' + sid);
-if (draft && draft !== originalAbc) {
-  $('#abc').value = draft;
-}
-
-loadSong();
+// Restore a local unsaved draft AFTER the server copy loads (loadSong would
+// otherwise overwrite it), then re-render so the draft is what the user sees.
+loadSong().then(() => {
+  const draft = localStorage.getItem('draft-' + sid);
+  if (draft && draft !== originalAbc) { $('#abc').value = draft; render(); }
+  refreshSaveState();
+});
 </script>
-<div id="helpPanel">
-  <div class="helpCard">
-    <h3>⌨️ 快捷键 <button class="helpClose" onclick="toggleHelp()">✕</button></h3>
-    <table>
-      <tr><td>← / →</td><td>选择前一个 / 下一个音符</td></tr>
-      <tr><td>↑ / ↓</td><td>音高 +1 / −1 半音</td></tr>
-      <tr><td>Shift+↑ / ↓</td><td>升 / 降八度</td></tr>
-      <tr><td>1 – 8</td><td>时值：三十二分…二分音符</td></tr>
-      <tr><td>R</td><td>重复当前音符</td></tr>
-      <tr><td>Backspace</td><td>删除（变休止）</td></tr>
-      <tr><td>空格</td><td>从选中音符播放 / 暂停</td></tr>
-      <tr><td>⌘Z / ⌘⇧Z</td><td>撤销 / 重做</td></tr>
-      <tr><td>⌘S</td><td>保存乐谱</td></tr>
-      <tr><td>拖拽音符</td><td>上下拖动改音高</td></tr>
-      <tr><td>右键音符</td><td>菜单：休止/删除/八度/时值</td></tr>
-      <tr><td>? </td><td>显示此帮助</td></tr>
-    </table>
-    <div class="hint">先点击谱面任意音符进入编辑模式，快捷键即生效；在代码区输入时保持原生文本编辑</div>
-  </div>
-</div>
 </body>
 </html>
