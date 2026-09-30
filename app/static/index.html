@@ -110,6 +110,13 @@
   .queue-row:last-child { border-bottom: 0; }
   .queue-row .q-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .queue-row .q-kind { font-size: 11px; color: var(--fg-3); }
+  .queue-row .q-pos {
+    width: 20px; height: 20px; border-radius: 50%;
+    display: inline-flex; align-items: center; justify-content: center;
+    font-size: 10px; font-weight: 600; color: var(--fg-3);
+    background: var(--bg-2, rgba(255,255,255,.06)); border: 1px solid var(--border-soft);
+    flex: none;
+  }
   .queue-empty { padding: 22px 16px; text-align: center; color: var(--fg-3); font-size: var(--fs-meta); }
 
   /* ---------- list views ---------- */
@@ -540,18 +547,26 @@ function renderGlobalState(songs, trans) {
 }
 
 function renderQueue(songs, trans) {
+  // Show the TRUE execution order: running first, then pending by submit time (FIFO).
+  // The song list sorts newest-first, so pending entries must be re-sorted by created_at.
+  const rank = { running: 0, pending: 1 };
   const active = [
-    ...songs.filter(s => s.status === 'running' || s.status === 'pending').map(s => ({ kind:'Song', title:s.title, status:s.status })),
-    ...trans.filter(t => t.status === 'running' || t.status === 'pending').map(t => ({ kind:'Transcribe', title:t.name, status:t.status })),
-  ];
+    ...songs.filter(s => s.status === 'running' || s.status === 'pending')
+      .map(s => ({ kind:'Song', title:s.title, status:s.status, ts:s.created_at })),
+    ...trans.filter(t => t.status === 'running' || t.status === 'pending')
+      .map(t => ({ kind:'Transcribe', title:t.name, status:t.status, ts:t.created_at })),
+  ].sort((a, b) => rank[a.status] - rank[b.status] || (a.ts < b.ts ? -1 : a.ts > b.ts ? 1 : 0));
   $('#queueCount').textContent = active.length ? active.length + ' active' : '';
   $('#queueList').innerHTML = active.length
-    ? active.map(q => `
+    ? active.map((q, i) => {
+      const pendN = i - active.filter(a => a.status === 'running').length + 1;
+      return `
       <div class="queue-row">
-        ${q.status === 'running' ? '<span class="spinner" style="border-color:rgba(124,108,240,.3);border-top-color:var(--accent)"></span>' : '<span class="status status-pending"><span class="dot"></span></span>'}
+        ${q.status === 'running' ? '<span class="spinner" style="border-color:rgba(124,108,240,.3);border-top-color:var(--accent)"></span>' : `<span class="q-pos">${pendN}</span>`}
         <span class="q-title">${esc(q.title)}</span>
         <span class="q-kind">${q.kind}</span>
-      </div>`).join('')
+      </div>`;
+    }).join('')
     : '<div class="queue-empty">Queue idle — submit a song to begin.</div>';
 }
 function songActions(s) {
