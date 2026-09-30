@@ -1,12 +1,12 @@
 # YuE Studio
 
-A local-first web workstation for macOS (Apple Silicon): [YuE2](https://github.com/multimodal-art-projection/YuE) song generation + [SheetSage2](https://huggingface.co/m-a-p/SheetSage2) audio transcription + a visual ABC score editor. Dependencies managed with uv, state persisted in SQLite, everything runs offline.
+[English](README.md) | [简体中文](README.zh.md)
 
-本地优先的 macOS（Apple Silicon）Web 工作台：YuE2 歌曲生成、SheetSage2 音频转录、可视化 ABC 乐谱编辑器。uv 管理依赖，SQLite 持久化，全部离线运行。
+A local-first web workstation for macOS (Apple Silicon): [YuE2](https://github.com/multimodal-art-projection/YuE) song generation + [SheetSage2](https://huggingface.co/m-a-p/SheetSage2) audio transcription + a visual ABC score editor. Dependencies managed with uv, state persisted in SQLite, everything runs offline.
 
 ---
 
-## Architecture / 架构
+## Architecture
 
 ```
 yue-studio/
@@ -26,9 +26,7 @@ yue-studio/
 
 Two model environments must stay separate (conflicting dependency versions): this repo's `.venv` (uv, Python 3.12, torch 2.10 MPS) runs YuE2 generation; `../YuE/.venv-ss2` (Python 3.11, transformers 4.45.2) is invoked as a subprocess by the worker for SheetSage2 transcription. Model weights are shared from `../hf-cache` (YuE2-3B, YuE2-Vae, MERT2).
 
-两套模型环境必须分开（依赖版本冲突）：本仓库 `.venv` 跑 YuE2 生成；`../YuE/.venv-ss2` 由 worker 以子进程调用跑 SheetSage2。模型权重共用 `../hf-cache`。
-
-## Quick Start / 快速开始
+## Quick Start
 
 ```bash
 # 1. First run: fetch the piano samples (~2.1 MB; source & license below)
@@ -42,7 +40,7 @@ uv run uvicorn app.main:app --host 127.0.0.1 --port 8770
 # open http://127.0.0.1:8770
 ```
 
-## Features / 功能
+## Features
 
 **Create** — title / style prompt / lyrics (`[Intro] [Verse] [Pre-Chorus] [Chorus] [Bridge] [Outro]` section tags; `[la]` for humming) / seed. Three modes: *Smart Arrangement* (AI plans melody + harmony), *Melody Guided* (re-arrange an existing ABC score — pick one from the built-in library dropdown), *Direct* (skip score planning).
 
@@ -64,7 +62,7 @@ audio file ─transcribe→ 🎼 score (transcription asset) ─spawn→ 🎵 so
 
 **Persistence** — everything lives in SQLite + on-disk artifacts and survives restarts. Cards show created/modified timestamps; titles rename by double-click.
 
-## Performance / 性能参考
+## Performance
 
 Measured on M4 Pro (48 GB):
 
@@ -92,9 +90,9 @@ POST   /api/songs/from-transcription/{id}  spawn a song from a score {title, sty
 GET    /editor/trans/{tid} | /editor/{sid} score editor pages
 ```
 
-## Piano Samples / 钢琴音源
+## Piano Samples
 
-The editor's MIDI preview needs 89 piano note samples (FluidR3_GM acoustic grand piano, ≈ 2.1 MB total). **The samples are NOT distributed with this repository** — a script downloads them on demand into `app/static/soundfonts//` (gitignored):
+The editor's MIDI preview needs 89 piano note samples (FluidR3_GM acoustic grand piano, ≈ 2.1 MB total). **The samples are NOT distributed with this repository** — a script downloads them on demand into `app/static/soundfonts/` (gitignored):
 
 ```bash
 python3 scripts/fetch_soundfonts.py          # download / top up the cache (idempotent)
@@ -104,9 +102,9 @@ python3 scripts/fetch_soundfonts.py --check  # verify only; exit code usable in 
 - The editor probes the cache before playback and shows an actionable hint if it is missing (no silent failure)
 - The script fetches exactly the notes abcjs requests (black keys use flat names: Bb/Db/Eb/Gb/Ab)
 
-编辑器试听需要 89 个钢琴采样（约 2.1MB），**不入仓库**，由脚本按需下载到 `app/static/soundfonts/`（已 gitignore）。编辑器播放前探测缓存，缺失时明确提示。
+If the script cannot run in a restricted network, run it on any connected machine and copy the whole `app/static/soundfonts/` directory over.
 
-### Sample source & license / 素材来源与授权
+### Sample source & license
 
 | Asset | Source | License |
 |---|---|---|
@@ -115,9 +113,7 @@ python3 scripts/fetch_soundfonts.py --check  # verify only; exit code usable in 
 | YuE2 inference runtime | [multimodal-art-projection/YuE](https://github.com/multimodal-art-projection/YuE) | Apache-2.0 (weights: see its MODEL_LICENSE) |
 | YuE2-3B / YuE2-Vae / SheetSage2 / MERT2 weights | [m-a-p on Hugging Face](https://huggingface.co/m-a-p) | per model card |
 
-If the script cannot run in a restricted network, run it on any connected machine and copy the whole `app/static/soundfonts/` directory over.
-
-## Open Source Statement / 开源声明
+## Open Source Statement
 
 This repository's own code is released under the **Apache License 2.0** (see [LICENSE](LICENSE)). Third-party components and their licenses:
 
@@ -130,10 +126,6 @@ This repository's own code is released under the **Apache License 2.0** (see [LI
 
 Rights to generated music are governed by the underlying model licenses — read each model card before use. This repository claims no rights over generated output.
 
-生成内容（音乐）的权利归属由底层模型许可决定；本仓库不主张对生成产物的任何权利。
-
-## Data & Privacy / 数据与隐私
+## Data & Privacy
 
 All processing happens on your machine: SQLite, audio artifacts and model caches stay on local disk. No telemetry, no external reporting. The only outbound network access is the one-time sample download from GitHub Pages.
-
-全部处理在本机完成，无遥测。唯一的外部网络访问是首次运行 `fetch_soundfonts.py` 下载音源。
