@@ -1,0 +1,19 @@
+[project]
+name = "yue-studio"
+version = "0.1.0"
+description = "Web UI for YuE2 music generation and SheetSage2 transcription on Apple Silicon"
+requires-python = ">=3.12"
+dependencies = [
+    "yue2-infer",
+    "fastapi>=0.115",
+    "uvicorn>=0.30",
+    "python-multipart>=0.0.9",
+]
+
+[tool.uv.sources]
+yue2-infer = { path = "../YuE", editable = false }
+
+[dependency-groups]
+dev = [
+    "httpx2>=2.13.1",
+]

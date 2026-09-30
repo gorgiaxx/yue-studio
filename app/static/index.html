@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>YuE Studio</title>
+<style>
+  :root { --bg:#0f1115; --panel:#181b21; --line:#2a2f3a; --fg:#e8eaf0; --mut:#9aa1b0; --acc:#7c6cf0; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg); font:14px/1.5 -apple-system,"PingFang SC",sans-serif; }
+  header { padding:14px 24px; border-bottom:1px solid var(--line); display:flex; gap:12px; align-items:baseline; }
+  header h1 { margin:0; font-size:18px; }
+  header span { color:var(--mut); font-size:12px; }
+  main { display:grid; grid-template-columns: 380px 1fr; gap:18px; padding:18px 24px; max-width:1400px; margin:0 auto; }
+  .card { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:16px; }
+  .card h2 { margin:0 0 12px; font-size:14px; color:var(--mut); text-transform:uppercase; letter-spacing:.05em; }
+  label { display:block; font-size:12px; color:var(--mut); margin:10px 0 4px; }
+  input[type=text], input[type=number], textarea, select {
+    width:100%; background:var(--bg); color:var(--fg); border:1px solid var(--line);
+    border-radius:6px; padding:8px 10px; font:inherit; }
+  textarea { resize:vertical; min-height:70px; }
+  textarea.lyr { min-height:140px; font-family:ui-monospace,monospace; }
+  button { background:var(--acc); color:#fff; border:0; border-radius:7px; padding:9px 16px;
+    font:inherit; font-weight:600; cursor:pointer; margin-top:12px; width:100%; }
+  button:hover { filter:brightness(1.1); }
+  button.ghost { background:transparent; border:1px solid var(--line); color:var(--mut); font-weight:400; }
+  .hint { font-size:12px; color:var(--mut); margin-top:4px; }
+  .list { display:flex; flex-direction:column; gap:10px; }
+  .item { border:1px solid var(--line); border-radius:8px; padding:12px 14px; background:var(--panel); }
+  .item .top { display:flex; justify-content:space-between; align-items:center; gap:8px; }
+  .item .title { font-weight:600; }
+  .badge { font-size:11px; padding:2px 8px; border-radius:10px; background:var(--line); color:var(--mut); white-space:nowrap; }
+  .badge.running { background:#3a3050; color:#c9b8ff; }
+  .badge.done { background:#1d3a2a; color:#8ee6a8; }
+  .badge.failed { background:#4a2226; color:#ff9aa4; }
+  .item .meta { font-size:12px; color:var(--mut); margin-top:4px; }
+  .item .err { font-size:12px; color:#ff9aa4; margin-top:4px; white-space:pre-wrap; }
+  .item audio { width:100%; margin-top:10px; }
+  .row { display:flex; gap:8px; }
+  .row > * { flex:1; }
+  details.abcbox summary { cursor:pointer; font-size:12px; color:var(--mut); margin-top:8px; }
+  details.abcbox pre { background:var(--bg); border:1px solid var(--line); border-radius:6px;
+    padding:10px; font-size:11px; overflow:auto; max-height:200px; }
+  .empty { color:var(--mut); font-size:13px; padding:20px; text-align:center; }
+  .tabs { display:flex; gap:8px; margin-bottom:14px; }
+  .tabs button { width:auto; margin:0; background:transparent; color:var(--mut); border:1px solid var(--line); }
+  .tabs button.active { background:var(--acc); color:#fff; border-color:var(--acc); }
+</style>
+</head>
+<body>
+<header>
+  <h1>🎹 YuE Studio</h1>
+  <span>YuE2 生成 + SheetSage2 转写 · Apple Silicon (MPS)</span>
+</header>
+<main>
+  <section>
+    <div class="card">
+      <h2>生成歌曲</h2>
+      <form id="genForm">
+        <label>标题</label>
+        <input type="text" id="title" placeholder="我的歌" required>
+        <label>风格提示词</label>
+        <input type="text" id="style" placeholder="Mandarin pop ballad, female vocal, piano, emotional" required>
+        <label>歌词</label>
+        <textarea id="lyrics" class="lyr" placeholder="[Intro]&#10;（前奏·留空或写 [la]）&#10;&#10;[Verse]&#10;主歌歌词...&#10;&#10;[Pre-Chorus]&#10;预副歌（可选）...&#10;&#10;[Chorus]&#10;副歌歌词...&#10;&#10;[Bridge]&#10;桥段（可选）...&#10;&#10;[Outro]&#10;（尾奏·留空或写 [la]）" required></textarea>
+        <div class="hint">段落标记：[Intro] [Verse] [Pre-Chorus] [Chorus] [Bridge] [Outro]，顺序与数量随意；段落写 [la] 唱哼鸣，乐器间奏留空行。</div>
+        <label>模式</label>
+        <select id="cot">
+          <option value="full">智能编曲 (full) — 自动写旋律+和弦</option>
+          <option value="melody">旋律模式 (melody) — 用固定旋律重新编曲</option>
+          <option value="off">直出 (off) — 跳过乐谱规划</option>
+        </select>
+        <label>ABC 乐谱（可选，仅 melody 模式需要）</label>
+        <textarea id="abc" style="min-height:60px" placeholder="留空即可；或粘贴 ABC 乐谱"></textarea>
+        <div class="hint">ABC = 记录旋律/和弦的乐谱文本。不懂就不用填——转写音频后可一键复用。</div>
+        <label>Seed</label>
+        <input type="number" id="seed" value="831001" min="0">
+        <button type="submit">生成（约 5 分钟）</button>
+      </form>
+    </div>
+    <div class="card" style="margin-top:18px">
+      <h2>转录音频 → 乐谱</h2>
+      <form id="transForm">
+        <label>音频文件路径</label>
+        <input type="text" id="transPath" placeholder="/Users/rin/Documents/Audacity4/duyiwuer.mp3" required>
+        <div class="hint">转录出旋律 ABC 后，可在右侧列表一键用它生成翻唱。</div>
+        <button type="submit">开始转录</button>
+      </form>
+    </div>
+  </section>
+  <section>
+    <div class="tabs">
+      <button id="tabSongs" class="active" onclick="switchTab('songs')">歌曲</button>
+      <button id="tabTrans" onclick="switchTab('trans')">转录</button>
+    </div>
+    <div id="songList" class="list"></div>
+    <div id="transList" class="list" style="display:none"></div>
+  </section>
+</main>
+<script>
+let tab = 'songs';
+function switchTab(t) {
+  tab = t;
+  document.getElementById('tabSongs').classList.toggle('active', t === 'songs');
+  document.getElementById('tabTrans').classList.toggle('active', t === 'trans');
+  document.getElementById('songList').style.display = t === 'songs' ? '' : 'none';
+  document.getElementById('transList').style.display = t === 'trans' ? '' : 'none';
+}
+
+const esc = s => (s ?? '').toString().replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+
+async function refresh() {
+  const [songs, trans] = await Promise.all([
+    fetch('/api/songs').then(r => r.json()),
+    fetch('/api/transcriptions').then(r => r.json()),
+  ]);
+  renderSongs(songs);
+  renderTrans(trans);
+}
+
+function renderSongs(songs) {
+  const sl = document.getElementById('songList');
+  const html = songs.length ? songs.map(s => `
+    <div class="item">
+      <div class="top"><span class="title">${esc(s.title)}</span>
+        <span class="badge ${s.status}">${s.status}</span></div>
+      <div class="meta">${esc(s.style)} · seed ${s.seed} · ${new Date(s.created_at*1000).toLocaleString()}</div>
+      ${s.status === 'failed' ? `<div class="err">${esc(s.error)}</div>` : ''}
+      ${s.audio_path ? `<audio controls data-song="${s.id}" src="/api/songs/${s.id}/audio"></audio>` : ''}
+      ${s.abc_generated ? `<details class="abcbox"><summary>生成的乐谱 (ABC)</summary><pre>${esc(s.abc_generated)}</pre></details>` : ''}
+      <button class="ghost" onclick="location.href='/editor/${s.id}'">编辑乐谱</button>
+      <button class="ghost" onclick="delSong('${s.id}')">删除</button>
+    </div>`).join('') : '<div class="empty">还没有歌曲，左侧提交第一个吧</div>';
+  updateListPreservingPlayback(sl, html);
+}
+
+function renderTrans(trans) {
+  const tl = document.getElementById('transList');
+  const html = trans.length ? trans.map(t => `
+    <div class="item">
+      <div class="top"><span class="title">${esc(t.name)}</span>
+        <span class="badge ${t.status}">${t.status}</span></div>
+      <div class="meta">${esc(t.source)}${t.key ? ' · 调性 ' + esc(t.key) : ''}${t.duration ? ' · ' + t.duration.toFixed(1) + 's' : ''}</div>
+      ${t.status === 'failed' ? `<div class="err">${esc(t.error)}</div>` : ''}
+      ${t.abc ? `<details class="abcbox" ${t.status==='done'?'open':''}><summary>旋律乐谱 (ABC)</summary><pre>${esc(t.abc)}</pre></details>` : ''}
+      ${t.status === 'done' ? `<button class="ghost" onclick="useTrans('${t.id}')">用这个旋律生成翻唱 →</button>` : ''}
+    </div>`).join('') : '<div class="empty">没有转录任务</div>';
+  updateListPreservingPlayback(tl, html);
+}
+
+function updateListPreservingPlayback(el, html) {
+  // Avoid rebuilding DOM mid-playback: skip identical content, and when
+  // content does change, carry playing audio elements over with their state.
+  if (el._html === html) return;
+  const players = {};
+  for (const a of el.querySelectorAll('audio')) {
+    players[a.dataset.song || a.src] = {playing: !a.paused, time: a.currentTime, volume: a.volume, muted: a.muted};
+  }
+  el._html = html;
+  el.innerHTML = html;
+  for (const a of el.querySelectorAll('audio')) {
+    const state = players[a.dataset.song || a.src];
+    if (!state) continue;
+    a.currentTime = state.time;
+    a.volume = state.volume;
+    a.muted = state.muted;
+    if (state.playing) a.play().catch(() => {});
+  }
+}
+
+async function delSong(id) {
+  if (!confirm('删除这首歌？')) return;
+  await fetch('/api/songs/' + id, {method: 'DELETE'});
+  refresh();
+}
+
+function useTrans(tid) {
+  // Prefill the generation form from a transcription and jump to it.
+  fetch('/api/transcriptions/' + tid).then(r => r.json()).then(t => {
+    document.getElementById('title').value = t.name + ' cover';
+    document.getElementById('cot').value = 'melody';
+    document.getElementById('abc').value = t.abc || '';
+    document.getElementById('genForm').scrollIntoView({behavior: 'smooth'});
+  });
+}
+
+document.getElementById('genForm').onsubmit = async e => {
+  e.preventDefault();
+  const body = {
+    title: title.value, style: style.value, lyrics: lyrics.value,
+    cot: cot.value, abc: abc.value.trim() || null, seed: +seed.value,
+  };
+  const r = await fetch('/api/songs', {method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(body)});
+  if (!r.ok) { alert((await r.json()).detail || '提交失败'); return; }
+  abc.value = '';
+  refresh();
+};
+
+document.getElementById('transForm').onsubmit = async e => {
+  e.preventDefault();
+  const r = await fetch('/api/transcriptions', {method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({path: transPath.value})});
+  if (!r.ok) { alert((await r.json()).detail || '提交失败'); return; }
+  refresh();
+};
+
+refresh();
+setInterval(refresh, 3000);
+</script>
+</body>
+</html>

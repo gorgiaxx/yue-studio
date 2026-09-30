@@ -1,0 +1,1040 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>YuE Studio — 乐谱编辑器</title>
+<script src="/static/vendor/abcjs-basic.js"></script>
+<style>
+  :root { --bg:#0f1115; --panel:#181b21; --line:#2a2f3a; --fg:#e8eaf0; --mut:#9aa1b0; --acc:#7c6cf0; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg); font:14px/1.5 -apple-system,"PingFang SC",sans-serif;
+    height:100vh; overflow:hidden; display:flex; flex-direction:column; }
+  header h1 { margin:0; font-size:16px; }
+  header .sub { color:var(--mut); font-size:12px; flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  header button { background:var(--acc); color:#fff; border:0; border-radius:6px; padding:7px 14px; font:inherit; font-weight:600; cursor:pointer; }
+  header button.ghost { background:transparent; border:1px solid var(--line); color:var(--mut); font-weight:400; }
+  header button:disabled { opacity:.4; cursor:default; }
+  #wrap { flex:1; display:grid; grid-template-columns: 42% 58%; min-height:0; }
+  #codePane, #preview { border-right:1px solid var(--line); display:flex; flex-direction:column; min-height:0; }
+  #codePane .bar, #preview .bar { padding:8px 14px; border-bottom:1px solid var(--line); color:var(--mut); font-size:12px; display:flex; gap:10px; align-items:center; }
+  #status { font-weight:600; }
+  #status.err { color:#ff9aa4; }
+  #status.ok { color:#8ee6a8; }
+  #codeStack { position:relative; flex:1; min-height:0; flex-basis:0; display:flex; flex-direction:column; }
+  #codeHl { position:absolute; inset:0; pointer-events:none; overflow:hidden; padding:14px;
+    font:12px/1.6 ui-monospace,Menlo,monospace; white-space:pre; color:transparent; }
+  #codeHl mark { background:#7c6cf0; border-radius:2px; color:transparent; }
+  #abc { flex:1; width:100%; border:0; resize:none; background:transparent; color:var(--fg);
+    padding:14px; font:12px/1.6 ui-monospace,Menlo,monospace; outline:none; white-space:pre; overflow:auto;
+    min-height:0; flex-basis:0; position:relative; }
+  #abc::selection { background:#7c6cf0; color:#fff; }
+  #score { flex:1; min-height:0; flex-basis:0; overflow:auto; padding:14px; background:#fdfdf9; }
+  #score svg { display:block; margin:0 auto 18px; }
+  #score svg .abcjs-staff, #score svg .abcjs-note, #score svg .abcjs-rest,
+  #score svg path, #score svg text { fill:#1a1a1a; }
+  #score svg .playing-note path { fill:#7c6cf0 !important; }
+  #score svg .score-cursor path { fill:#e06c2f !important; }
+  #score svg .score-cursor { filter: drop-shadow(0 0 3px rgba(224,108,47,.8)); }
+  #score svg .selected-note path { fill:#2f9e6c !important; }
+  #score svg .selected-note { filter: drop-shadow(0 0 3px rgba(47,158,108,.9)); }
+  #helpPanel { position:fixed; inset:0; display:none; align-items:center; justify-content:center;
+    background:rgba(0,0,0,.55); z-index:200; }
+  .helpCard { background:var(--panel); border:1px solid var(--line); border-radius:12px;
+    padding:20px 26px; max-width:460px; box-shadow:0 16px 48px rgba(0,0,0,.6); }
+  .helpCard h3 { margin:0 0 14px; font-size:15px; display:flex; justify-content:space-between; align-items:center; }
+  .helpCard table { border-collapse:collapse; width:100%; }
+  .helpCard td { padding:5px 10px; font-size:13px; border-bottom:1px solid var(--line); }
+  .helpCard td:first-child { color:var(--acc); font-weight:600; white-space:nowrap; width:130px; }
+  .helpClose { background:transparent; border:0; color:var(--mut); font-size:16px; cursor:pointer; }
+  #playerBar { display:none; align-items:center; gap:10px; padding:6px 14px;
+    border-bottom:1px solid var(--line); }
+  #playerBar button { background:var(--acc); color:#fff; border:0; border-radius:6px;
+    padding:5px 14px; font:inherit; font-weight:600; cursor:pointer; }
+  #playerBar button.ghost { background:transparent; border:1px solid var(--line); color:var(--mut); }
+  #seek { flex:1; height:6px; -webkit-appearance:none; appearance:none; background:var(--line);
+    border-radius:3px; cursor:pointer; }
+  #seek::-webkit-slider-thumb { -webkit-appearance:none; width:14px; height:14px;
+    border-radius:50%; background:var(--acc); cursor:grab; }
+  #playTime { font:12px ui-monospace,monospace; color:var(--mut); min-width:90px; text-align:right; }
+  #ctxMenu { position:fixed; display:none; background:var(--panel); border:1px solid var(--line);
+    border-radius:8px; padding:6px; z-index:100; min-width:190px; box-shadow:0 8px 24px rgba(0,0,0,.5); }
+  #ctxMenu button { display:block; width:100%; text-align:left; background:transparent; color:var(--fg);
+    border:0; border-radius:5px; padding:7px 12px; font:13px inherit; cursor:pointer; }
+  .note-hl { cursor:grab; }
+  .abcjs-lyric { font-size: 11px; fill: var(--mut); }
+  #toast { position:fixed; bottom:18px; left:50%; transform:translateX(-50%); background:#22262e;
+    border:1px solid var(--line); border-radius:8px; padding:9px 18px; display:none; z-index:110; }
+</style>
+</head>
+<body>
+<header>
+  <button class="ghost" onclick="location.href='/'">← 返回</button>
+  <h1>🎼 乐谱编辑器</h1>
+  <span class="sub" id="songTitle"></span>
+  <button class="ghost" id="btnReset">还原初始乐谱</button>
+  <button class="ghost" id="btnUndo" title="撤销 (Cmd/Ctrl+Z)">↩ 撤销</button>
+  <button class="ghost" id="btnRedo" title="重做 (Cmd/Ctrl+Shift+Z)">↪ 重做</button>
+  <button class="ghost" id="btnSave">保存乐谱</button>
+  <button class="ghost" id="btnHelp" title="快捷键 (?)">⌨ 快捷键</button>
+  <button id="btnRegen" disabled>用此乐谱重新生成 →</button>
+</header>
+<div id="wrap">
+  <div id="codePane">
+    <div class="bar"><span id="status">渲染中…</span><span class="hint">编辑代码实时预览</span></div>
+    <div id="codeStack">
+      <div id="codeHl"></div>
+      <textarea id="abc" spellcheck="false"></textarea>
+    </div>
+  </div>
+  <div id="preview">
+    <div class="bar"><span class="hint">左键拖音符上下 = 改音高 · 右键音符 = 时值/八度/休止/删除 · 双击音符 = 试听</span></div>
+    <div id="playerBar">
+      <button id="btnPlay">▶ 播放</button>
+      <input type="range" id="seek" min="0" max="1000" value="0" step="1">
+      <span id="playTime">0:00 / 0:00</span>
+    </div>
+    <div id="score"></div>
+  </div>
+</div>
+<div id="ctxMenu"></div>
+<div id="dragGhost"></div>
+<div id="toast"></div>
+<script>
+const sid = location.pathname.split('/')[2];
+let originalAbc = '';
+let lastGood = null;          // last tune object that rendered successfully
+let saveTimer = null;
+
+const $ = s => document.querySelector(s);
+const statusEl = $('#status');
+
+// ---------- toast ----------
+let toastTimer;
+function toast(msg) {
+  const t = $('#toast'); t.textContent = msg; t.style.display = 'block';
+  clearTimeout(toastTimer); toastTimer = setTimeout(() => t.style.display = 'none', 1800);
+}
+
+// ---------- load ----------
+async function loadSong() {
+  const s = await fetch('/api/songs/' + sid).then(r => r.json());
+  $('#songTitle').textContent = s.title + ' · ' + s.style;
+  originalAbc = s.abc_generated || s.abc || '';
+  $('#abc').value = originalAbc;
+  render();
+  $('#btnRegen').disabled = !(s.cot === 'melody' || s.cot === 'full');
+}
+
+
+// ---------- model: abcjs clickListener provides startChar/endChar source spans ----------
+
+// ---------- edit operations (operate on char ranges of the textarea) ----------
+const NAMES = ['c','d','e','f','g','a','b'];
+const SEMIS = { c:0, d:2, e:4, f:5, g:7, a:9, b:11 };
+
+function spanAt(startChar, endChar) {
+  const text = $('#abc').value;
+  // abcjs's endChar points just past the token; prefer it over rescanning.
+  let end = endChar && endChar > startChar ? endChar : startChar + 1;
+  // Guard: extend only over characters that cannot belong to the next token
+  // (abcjs sometimes reports a single-char span for beamed groups).
+  while (end < text.length && end - startChar < 4 &&
+         /[0-9\/]/.test(text[end]) && !/[|:]/.test(text[end])) end++;
+  const raw = text.slice(startChar, end);
+  return { start: startChar, end, raw, info: classifyRaw(raw) };
+}
+
+function classifyRaw(raw) {
+  if (/^z/i.test(raw)) return { kind: 'rest', dur: (raw.match(/^z(\d*\/?\d*)/i) || [])[1] || '' };
+  const m = raw.match(/^((?:__|_|=|\^\^|\^)?)([a-gA-G])((?:,+)|('+)?)((?:\d+\/)?\d*)(-?)$/);
+  if (!m) return { kind: 'unknown' };
+  // groups: 1 acc | 2 letter | 3 octave markers | 4 inner ('+) capture | 5 duration | 6 tie
+  const acc = m[1], letter = m[2], oct = m[3] || '', dur = m[5] || '', tie = m[6] || '';
+  // abc octave convention: C..B = middle octave (0); c..b = +1 (one above);
+  // c'/b' = +2; C,/B, = -1. Markers are relative to the letter's case family.
+  let octave = 0;
+  if (letter === letter.toUpperCase()) octave = 0;       // C..B middle
+  else octave = 1;                                       // c..b one above
+  if (oct.startsWith(',')) octave -= oct.length;
+  else if (oct.startsWith("'")) octave += oct.length;
+  return { kind: 'note', acc, letter, octave, dur, tie };
+}
+
+function replaceSpan(span, newRaw) {
+  const text = $('#abc').value;
+  $('#abc').value = text.slice(0, span.start) + newRaw + text.slice(span.end);
+}
+function shiftPitch(span, semis) {
+  const info = span.info;
+  if (info.kind !== 'note') return null;
+  // abs: semitones above middle C (octave 0 = C..B), including the written accidental.
+  // ^ = +1, ^^ = +2, _ = -1, __ = -2; = forces natural (key signature ignored).
+  let accShift = info.acc === '^' ? 1 : info.acc === '^^' ? 2 : info.acc === '_' ? -1 : info.acc === '__' ? -2 : 0;
+  let abs = info.octave * 12 + SEMIS[info.letter.toLowerCase()] + accShift + semis;
+  const newOct = Math.floor(abs / 12);
+  let pc = ((abs % 12) + 12) % 12;
+  // Prefer naturals; spell black keys as sharps (^) of the natural a semitone below.
+  let accidental = '';
+  if (!NAMES.some(n => SEMIS[n] === pc)) {
+    accidental = '^';
+    pc = (pc + 11) % 12;   // the natural below the black key
+  }
+  const letter = NAMES.find(n => SEMIS[n] === pc);
+  // newOct 0 => uppercase C..B; 1 => c..b; >=2 => c'+; <0 => C,+
+  const octaveStr = newOct >= 2 ? "'".repeat(newOct - 1) : newOct < 0 ? ','.repeat(-newOct) : '';
+  const caseLetter = newOct >= 1 ? letter : letter.toUpperCase();
+  const newRaw = accidental + caseLetter + octaveStr + (info.dur || '') + (info.tie ? '-' : '');
+  replaceSpan(span, newRaw);
+  return { start: span.start, end: span.start + newRaw.length };   // updated span for drag tracking
+}
+
+function scaleDur(span, factor) {
+  const info = span.info;
+  if (info.kind !== 'note' && info.kind !== 'rest') return;
+  let cur = 1;
+  const dm = span.raw.match(/(\d+\/\d+|\d+)(-?)$/);
+  if (dm) cur = dm[1].includes('/') ? eval(dm[1]) : +dm[1];
+  let next = cur * factor;
+  if (next < 1/8) next = 1/8;
+  if (next > 32) next = 32;
+  const durStr = Number.isInteger(next) ? String(next) : simplifyFrac(next);
+  const tie = dm && dm[2] ? '-' : '';
+  const head = span.raw.replace(/(\d+\/\d+|\d+)(-?)$/, '');
+  replaceSpan(span, head + durStr + tie);
+}
+function simplifyFrac(v) {
+  for (let d = 2; d <= 64; d *= 2) {
+    const n = v * d;
+    if (Number.isInteger(n)) return (n === d ? '' : n + '/' + d);
+  }
+  return String(v);
+}
+
+function toggleRest(span) {
+  const info = span.info;
+  if (info.kind === 'rest') {
+    const backup = restBackup.get(span.start) || 'c';
+    replaceSpan(span, backup + (info.dur || ''));
+  } else {
+    restBackup.set(span.start, span.raw.replace(/(\d+\/\d+|\d+)(-?)$/, ''));
+    replaceSpan(span, 'z' + (info.dur || '') + (span.raw.endsWith('-') ? '-' : ''));
+  }
+}
+const restBackup = new Map();
+
+function deleteNote(span) {
+  if (span.info.kind === 'note') replaceSpan(span, 'z' + (span.info.dur || ''));
+  else replaceSpan(span, '');
+}
+
+// ---------- selection: clicking a note highlights its source ----------
+// A blurred textarea does not paint its native selection, so the current focus is
+// ALSO rendered as a persistent purple band in the #codeHl overlay under the text.
+function updateCodeHl() {
+  const ta = $('#abc'), hl = $('#codeHl');
+  if (!ta || !hl) return;
+  const s = ta.selectionStart, e = ta.selectionEnd;
+  hl.innerHTML = '';
+  if (s === e) { hl.scrollTop = ta.scrollTop; return; }   // caret only: no band
+  const before = ta.value.slice(0, s);
+  const token = ta.value.slice(s, e);
+  const after = ta.value.slice(e);
+  const esc = t => t.replace(/&/g, '&amp;').replace(/</g, '&lt;');
+  hl.innerHTML = esc(before) + '<mark>' + esc(token) + '</mark>' + esc(after);
+  hl.scrollTop = ta.scrollTop;
+  hl.scrollLeft = ta.scrollLeft;
+}
+
+function selectInCode(span) {
+  const ta = $('#abc');
+  ta.focus({ preventScroll: true });   // keep the browser from scrolling the PAGE
+  ta.setSelectionRange(span.start, span.end);
+  updateCodeHl();
+  // Center the token inside the textarea viewport (accounting for its own padding,
+  // which the browser's built-in focus scroll ignores).
+  const cs = getComputedStyle(ta);
+  const lineHeight = parseFloat(cs.lineHeight) || 19.2;
+  const paddingTop = parseFloat(cs.paddingTop) || 0;
+  const line = ta.value.slice(0, span.start).split('\n').length - 1;
+  const target = paddingTop + line * lineHeight;        // top edge of the caret line
+  const centerOffset = target - (ta.clientHeight - lineHeight) / 2;
+  ta.scrollTop = Math.max(0, centerOffset);
+  updateCodeHl();
+}
+
+// ---------- score cursor: a persistent marker on the staff ----------
+// Unlike the playback highlight, this cursor exists even where there is no note
+// (bars, chord annotations, headers): it is anchored to the abcjs element whose
+// source span contains a given character offset.
+let engravedObj = null;   // engraved visualObj from render(); carries elemset DOM refs
+
+
+function clearScoreCursor() {
+  for (const el of document.querySelectorAll('.score-cursor'))
+    el.classList.remove('score-cursor');
+}
+
+function moveScoreCursorToChar(charIdx) {
+  // Walk the ENGRAVED element tree: lines[].staffGroup.voices[].children[] each have
+  // abcelem.startChar/endChar and elemset (SVG DOM refs). lastGood (parseOnly) has no
+  // engraving, so keep the engraved visualObj from render().
+  if (!engravedObj) return;
+  let best = null;       // element containing the caret
+  let nearest = null;    // first element starting after the caret
+  for (const line of (engravedObj.lines || [])) {
+    const sg = line.staffGroup || {};
+    for (const voice of (sg.voices || [])) {
+      for (const el of (voice.children || [])) {
+        const ab = el.abcelem || {};
+        if (ab.startChar === undefined) continue;
+        if (charIdx >= ab.startChar && charIdx < ab.endChar) { best = el; }
+        else if (ab.startChar >= charIdx &&
+                 (!nearest || ab.startChar < nearest.abcelem.startChar)) nearest = el;
+      }
+    }
+  }
+  const target = best || nearest;
+  if (!target) return;
+  clearScoreCursor();
+  for (const de of (target.elemset || []))
+    if (de && de.classList) de.classList.add('score-cursor');
+  // keep the cursor in view
+  const first = (target.elemset || []).find(de => de && de.scrollIntoView);
+  if (first) {
+    const r = first.getBoundingClientRect();
+    const pane = $('#score').getBoundingClientRect();
+    if (r.top < pane.top + 20 || r.bottom > pane.bottom - 20)
+      first.scrollIntoView({ block: 'center', behavior: 'smooth' });
+  }
+}
+
+// ---------- undo / redo ----------
+// History of editor snapshots; pushed before each programmatic mutation and
+// (coarsely) on typing pauses so Ctrl+Z works for both menu edits and typing.
+let undoStack = [];
+let redoStack = [];
+let typingTimer = null;
+
+function pushUndo() {
+  const text = $('#abc').value;
+  const top = undoStack[undoStack.length - 1];
+  if (top === text) return;
+  undoStack.push(text);
+  if (undoStack.length > 200) undoStack.shift();
+  redoStack = [];
+}
+
+function applyText(text) {
+  $('#abc').value = text;
+  render();
+}
+
+function doUndo() {
+  if (undoStack.length < 1) return;
+  const current = $('#abc').value;
+  const prev = undoStack.pop();
+  if (prev === current) {
+    if (!undoStack.length) return;
+    redoStack.push(prev);
+    return applyText(undoStack.pop());
+  }
+  redoStack.push(current);
+  applyText(prev);
+  toast('撤销');
+}
+
+function doRedo() {
+  if (!redoStack.length) return;
+  const current = $('#abc').value;
+  const next = redoStack.pop();
+  if (next === current) {
+    if (!redoStack.length) return;
+    undoStack.push(current);
+    return applyText(redoStack.pop());
+  }
+  undoStack.push(current);
+  applyText(next);
+  toast('重做');
+}
+
+// ---------- professional editing shortcuts ----------
+// Music-editor style, active when focus is NOT in the textarea (score editing mode):
+//   ←/→            select previous/next note/rest (wraps lines)
+//   ↑/↓            pitch up/down one semitone
+//   Shift+↑/↓      pitch up/down one octave
+//   1..8           set duration to 32nd..whole (in L: units: 2,3,4,6,8,12,16,32... we map simply)
+//   r               repeat current note
+//   Backspace      turn current note into a rest
+//   Space          play/pause from the selected note
+//   Cmd/Ctrl+Z / +Shift+Z   undo/redo
+// In the textarea the browser handles keys natively except Cmd+Z.
+
+function orderedMusicSpans() {
+  // All note/rest tokens in source order, derived from the engraved tree (stable spans).
+  const spans = [];
+  if (!engravedObj) return spans;
+  for (const line of (engravedObj.lines || [])) {
+    const sg = line.staffGroup || {};
+    for (const voice of (sg.voices || [])) {
+      for (const el of (voice.children || [])) {
+        const ab = el.abcelem || {};
+        if (ab.el_type !== 'note' && ab.el_type !== 'rest') continue;
+        spans.push({ start: ab.startChar, end: ab.endChar });
+      }
+    }
+  }
+  spans.sort((a, b) => a.start - b.start);
+  return spans;
+}
+
+let selectedNoteIdx = -1;   // index into orderedMusicSpans
+
+function selectNote(i, opts) {
+  const spans = orderedMusicSpans();
+  if (!spans.length) return;
+  selectedNoteIdx = Math.max(0, Math.min(spans.length - 1, i));
+  const span = spans[selectedNoteIdx];
+  activeSpan = { ...span };
+  const keepFocus = opts && opts.keepFocus;
+  if (!keepFocus) selectInCode(span);   // normal click: focus + select in the code pane
+  else {
+    // Keyboard navigation: highlight WITHOUT stealing focus, or subsequent shortcuts
+    // would land in the textarea as native typing. The overlay keeps the selection
+    // visible even though the textarea is not focused.
+    const ta = $('#abc');
+    ta.setSelectionRange(span.start, span.end);
+    updateCodeHl();
+    // keep the highlighted line centered in the code pane
+    const cs = getComputedStyle(ta);
+    const lh = parseFloat(cs.lineHeight) || 19.2;
+    const line = ta.value.slice(0, span.start).split('\n').length - 1;
+    ta.scrollTop = Math.max(0, (parseFloat(cs.paddingTop) || 0) + line * lh - (ta.clientHeight - lh) / 2);
+    updateCodeHl();
+  }
+  moveScoreCursorToChar(span.start);
+  // Visual selection ring on the score (distinct from the orange caret cursor).
+  for (const el of document.querySelectorAll('.selected-note')) el.classList.remove('selected-note');
+  const target = elementContainingChar(span.start);
+  if (target) for (const de of (target.elemset || [])) de.classList.add('selected-note');
+}
+
+function elementContainingChar(charIdx) {
+  if (!engravedObj) return null;
+  for (const line of (engravedObj.lines || [])) {
+    const sg = line.staffGroup || {};
+    for (const voice of (sg.voices || [])) {
+      for (const el of (voice.children || [])) {
+        const ab = el.abcelem || {};
+        if (ab.startChar !== undefined && charIdx >= ab.startChar && charIdx < ab.endChar) return el;
+      }
+    }
+  }
+  return null;
+}
+
+function editSelected(fn) {
+  const spans = orderedMusicSpans();
+  if (selectedNoteIdx < 0 || selectedNoteIdx >= spans.length) return false;
+  const span = { ...spans[selectedNoteIdx], info: null };
+  const cur = spanAt(span.start, span.end);
+  if (!cur) return false;
+  pushUndo();
+  fn(cur);
+  render();
+  // Re-select at the (possibly shifted) position; keep focus OUT of the textarea so
+  // chained shortcuts keep working in score-edit mode.
+  const idx = orderedMusicSpans().findIndex(s => s.start === cur.start);
+  if (idx >= 0) selectNote(idx, { keepFocus: true });
+  return true;
+}
+
+const DURATION_KEYS = {   // key → ABC duration in L: units (L:1/16 → 1 = one 16th)
+  '1': '1',   // 32nd   (half of a 16th)
+  '2': '2',   // 16th   (= L)
+  '3': '3',   // dotted 16th
+  '4': '4',   // 8th
+  '5': '6',   // dotted 8th
+  '6': '8',   // quarter
+  '7': '12',  // dotted quarter
+  '8': '16',  // half
+};
+
+document.addEventListener('keydown', e => {
+  const meta = e.metaKey || e.ctrlKey;
+  const ta = $('#abc');
+  const inText = document.activeElement === ta;
+
+  // Undo/redo works everywhere.
+  if (meta && e.key.toLowerCase() === 'z') {
+    e.preventDefault();
+    if (e.shiftKey) doRedo(); else doUndo();
+    return;
+  }
+  // Save: Cmd+S
+  if (meta && e.key.toLowerCase() === 's') { e.preventDefault(); $('#btnSave').click(); return; }
+  // Help: ?
+  if (e.key === '?' && !inText) { e.preventDefault(); toggleHelp(); return; }
+  if (inText) return;   // textarea keys stay native
+
+  const spans = orderedMusicSpans();
+  switch (e.key) {
+    case 'ArrowLeft':
+      e.preventDefault();
+      selectNote(selectedNoteIdx <= 0 ? spans.length - 1 : selectedNoteIdx - 1, { keepFocus: true });
+      break;
+    case 'ArrowRight':
+      e.preventDefault();
+      selectNote(selectedNoteIdx < 0 ? 0 : (selectedNoteIdx + 1) % Math.max(1, spans.length), { keepFocus: true });
+      break;
+    case 'ArrowUp':
+      e.preventDefault();
+      if (e.shiftKey) editSelected(s => shiftPitch(s, 12)); else editSelected(s => shiftPitch(s, 1));
+      break;
+    case 'ArrowDown':
+      e.preventDefault();
+      if (e.shiftKey) editSelected(s => shiftPitch(s, -12)); else editSelected(s => shiftPitch(s, -1));
+      break;
+    case 'Backspace':
+    case 'Delete':
+      e.preventDefault();
+      editSelected(s => deleteNote(s));
+      break;
+    case 'r': case 'R':
+      e.preventDefault();
+      editSelected(s => {
+        // Duplicate the token after the current one.
+        const text = $('#abc').value;
+        $('#abc').value = text.slice(0, s.end) + s.raw + text.slice(s.end);
+      });
+      break;
+    case ' ':
+      e.preventDefault();
+      $('#btnPlay').click();
+      break;
+    default:
+      if (DURATION_KEYS[e.key]) {
+        e.preventDefault();
+        editSelected(s => scaleDurTo(s, DURATION_KEYS[e.key]));
+      }
+  }
+});
+
+function scaleDurTo(span, durStr) {
+  const raw = span.raw;
+  const m = raw.match(/^((?:__|_|=|\^\^|\^)?[a-gA-G](?:,+|'+)?|[xzXZ])/);
+  if (!m) return;
+  const head = m[1];
+  const tie = raw.endsWith('-') ? '-' : '';
+  replaceSpan(span, head + durStr + tie);
+}
+
+$('#btnHelp').onclick = () => toggleHelp();
+
+function toggleHelp() {
+  const h = $('#helpPanel');
+  h.style.display = h.style.display === 'flex' ? 'none' : 'flex';
+}
+// Coalescing undo snapshots from typing: capture the pre-typing state once per pause.
+$('#abc').addEventListener('input', () => {
+  if (!typingTimer) pushUndoSilent();
+  clearTimeout(typingTimer);
+  typingTimer = setTimeout(() => { typingTimer = null; }, 600);
+});
+let preTyping = null;
+function pushUndoSilent() {
+  // record the state BEFORE this burst of typing started
+  if (preTyping !== null) { undoStack.push(preTyping); redoStack = []; }
+  preTyping = $('#abc').value;
+}
+
+$('#abc').addEventListener('input', () => { scheduleRender(); });
+
+// ---------- code → score cursor sync ----------
+// Moving the caret in the textarea positions the orange score cursor on the staff,
+// even when the caret sits on a chord annotation or header with no note.
+let lastCaretChar = 0;   // last caret position while the textarea had focus
+
+function syncScoreCursorFromCaret() {
+  const ta = $('#abc');
+  lastCaretChar = ta.selectionStart;
+  moveScoreCursorToChar(ta.selectionStart);
+}
+$('#abc').addEventListener('click', syncScoreCursorFromCaret);
+$('#abc').addEventListener('keyup', e => {
+  if (e.key.startsWith('Arrow') || e.key === 'Home' || e.key === 'End' ||
+      e.key === 'PageUp' || e.key === 'PageDown') syncScoreCursorFromCaret();
+});
+document.addEventListener('selectionchange', () => {
+  // The playhead (syncCodeFromEvent) also moves the selection; don't let it
+  // overwrite the user's caret while a tune is playing.
+  if (synthCtl && synthCtl.isRunning) return;
+  if (document.activeElement === $('#abc')) syncScoreCursorFromCaret();
+});
+
+// ---------- interaction ----------
+let activeSpan = null;   // char range of last-clicked note/rest
+
+function render() {
+  const text = $('#abc').value;
+  const tuneBook = ABCJS.parseOnly(text);
+  if (!tuneBook.length || tuneBook[0].error) {
+    const msg = tuneBook.length ? (tuneBook[0].error || []).map(e => e.message || e).join('; ') : '无法解析';
+    statusEl.textContent = '语法错误: ' + msg;
+    statusEl.className = 'err';
+    return;
+  }
+  lastGood = tuneBook[0];
+  const ok = ABCJS.renderAbc('score', text, {
+    add_classes: true, wrap: { minSpacing: 2.0, maxSpacing: 2.6, preferredMeasuresPerLine: 4 },
+    paddingtop: 6, paddingbottom: 6,
+    clickListener: (abselem) => {
+      if (abselem && (abselem.el_type === 'note' || abselem.el_type === 'rest')) {
+        activeSpan = { start: abselem.startChar, end: abselem.endChar };
+        // Enter score-edit mode: mark the note, blur the textarea so subsequent
+        // keystrokes become editor shortcuts instead of text input.
+        const spans = orderedMusicSpans();
+        const idx = spans.findIndex(s => s.start === abselem.startChar);
+        if (idx >= 0) {
+          selectNote(idx);
+          if (document.activeElement === $('#abc')) $('#abc').blur();
+        } else {
+          selectInCode(activeSpan);
+          moveScoreCursorToChar(abselem.startChar);
+        }
+      }
+    },
+  });
+  engravedObj = ok[0];   // engraved tree with abcelem.startChar + elemset DOM refs
+  const warns = (ok[0] && ok[0].warnings && ok[0].warnings.length) ? ok[0].warnings.length : 0;
+  statusEl.textContent = '渲染成功' + (warns ? `（${warns} 处警告）` : '');
+  statusEl.className = 'ok';
+  $('#playerBar').style.display = 'flex';
+}
+
+let renderTimer;
+function scheduleRender() {
+  clearTimeout(renderTimer);
+  renderTimer = setTimeout(render, 250);
+}
+
+// --- context menu ---
+const menu = $('#ctxMenu');
+document.addEventListener('contextmenu', e => {
+  const g = e.target.closest('.abcjs-note, .abcjs-rest');
+  if (!g) { menu.style.display = 'none'; return; }
+  e.preventDefault();
+  activeSpan = null;
+  fireClickSeq(g);
+  setTimeout(() => showMenu(e.clientX, e.clientY), 0);
+});
+
+function showMenu(x, y) {
+  if (!activeSpan) return;
+  const span = spanAt(activeSpan.start, activeSpan.end);
+  const isNote = span.info.kind === 'note';
+  const isRest = span.info.kind === 'rest';
+  menu.innerHTML = '';
+  const add = (label, fn) => {
+    const b = document.createElement('button');
+    b.textContent = label;
+    b.onclick = () => { pushUndo(); fn(); menu.style.display = 'none'; render(); };
+    menu.appendChild(b);
+  };
+  add('音高 +1 半音', () => isNote && shiftPitch(span, 1));
+  add('音高 −1 半音', () => isNote && shiftPitch(span, -1));
+  const sep1 = document.createElement('div'); sep1.className = 'sep'; menu.appendChild(sep1);
+  add('升高八度', () => isNote && shiftPitch(span, 12));
+  add('降低八度', () => isNote && shiftPitch(span, -12));
+  const sep2 = document.createElement('div'); sep2.className = 'sep'; menu.appendChild(sep2);
+  add('时值 ×2', () => scaleDur(span, 2));
+  add('时值 ÷2', () => scaleDur(span, .5));
+  const sep3 = document.createElement('div'); sep3.className = 'sep'; menu.appendChild(sep3);
+  add(isRest ? '转为音符 c' : '转为休止符', () => toggleRest(span));
+  if (isNote) add('删除（变休止）', () => deleteNote(span));
+  menu.style.display = 'block';
+  menu.style.left = Math.min(x, innerWidth - 210) + 'px';
+  menu.style.top = Math.min(y, innerHeight - menu.offsetHeight - 10) + 'px';
+}
+document.addEventListener('mousedown', e => { if (!menu.contains(e.target)) menu.style.display = 'none'; });
+
+// --- drag to change pitch ---
+function fireClickSeq(el) {
+  const r = el.getBoundingClientRect();
+  const opts = { bubbles: true, clientX: r.x + r.width / 2, clientY: r.y + r.height / 2 };
+  ['mousedown', 'mouseup', 'click'].forEach(t => el.dispatchEvent(new MouseEvent(t, opts)));
+}
+let dragging = null;
+const ghost = $('#dragGhost');
+document.addEventListener('mousedown', e => {
+  const g = e.target.closest('.abcjs-note');
+  if (!g || e.button !== 0 || menu.style.display === 'block') return;
+  activeSpan = null;
+  fireClickSeq(g);
+  if (!activeSpan) return;
+  e.preventDefault();
+  // One undo snapshot per drag gesture, taken before the first pitch change.
+  pushUndo();
+  // dragging.moved stays false until the pointer actually moves; a plain click then
+  // falls through to abcjs's own click handling instead of re-rendering the score.
+  dragging = { start: activeSpan.start, len: activeSpan.end - activeSpan.start,
+               startY: e.clientY, lastSemis: 0, moved: false };
+});
+
+document.addEventListener('mousemove', e => {
+  if (!dragging) return;
+  const semis = -Math.round((e.clientY - dragging.startY) / 9);
+  const delta = semis - dragging.lastSemis;
+  if (delta === 0) return;
+  dragging.lastSemis = semis;
+  const span = spanAt(dragging.start, dragging.start + dragging.len);
+  if (span.info.kind !== 'note') { dragging = null; return; }
+  const newSpan = shiftPitch(span, delta);
+  if (newSpan) { dragging.start = newSpan.start; dragging.len = newSpan.end - newSpan.start; }
+  dragging.moved = true;
+  scheduleRender();
+  ghost.style.display = 'block';
+  ghost.style.left = e.clientX + 14 + 'px';
+  ghost.style.top = e.clientY - 24 + 'px';
+  ghost.textContent = (semis > 0 ? '+' : '') + semis + ' 半音';
+});
+document.addEventListener('mouseup', () => {
+  if (dragging) {
+    const wasMoved = dragging.moved;
+    dragging = null;
+    ghost.style.display = 'none';
+    if (wasMoved) render();   // plain clicks keep the SVG alive so the click event lands
+  }
+});
+
+// ---------- MIDI playback with seekable progress ----------
+let synthCtl = null;      // ABCJS.synth.CreateSynth instance
+let playVisualObj = null; // visualObj bound to the synth
+let playTimer = null;
+let seekDragging = false;
+let timingCb = null;      // ABCJS.TimingCallbacks for live note highlighting
+let lastHighlighted = null;
+
+function clearHighlight() {
+  if (lastHighlighted) {
+    for (const el of lastHighlighted) {
+      if (el && el.classList) el.classList.remove('playing-note');
+    }
+    lastHighlighted = null;
+  }
+}
+
+function highlightElements(elements) {
+  clearHighlight();
+  // abcjs passes nested arrays (one per voice) of SVG nodes; flatten one level.
+  const els = [];
+  for (const entry of elements || []) {
+    if (!entry) continue;
+    if (Array.isArray(entry)) {
+      for (const e of entry) if (e && e.classList) els.push(e);
+    } else if (entry.classList) els.push(entry);
+  }
+  if (!els.length) return;
+  lastHighlighted = els;
+  for (const el of els) el.classList.add('playing-note');
+  // Auto-scroll: keep the current note's staff line in view.
+  const first = els[0];
+  if (first && first.scrollIntoView) {
+    const r = first.getBoundingClientRect();
+    const pane = $('#score').getBoundingClientRect();
+    if (r.top < pane.top + 30 || r.bottom > pane.bottom - 30) {
+      first.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    }
+  }
+}
+
+async function ensureSynth() {
+  // CreateSynth requires the visualObj returned by renderAbc (it carries setUpAudio),
+  // not the plain parseOnly object. Re-init when the editor text changed.
+  if (!window.ABCJS.synth) { toast('浏览器不支持播放'); return null; }
+  const text = $('#abc').value;
+  if (playVisualObj && playVisualObj._src === text) return synthCtl;
+  if (synthCtl) { try { synthCtl.stop(); } catch (e) {} }
+  synthCtl = new ABCJS.synth.CreateSynth();
+  playVisualObj = ABCJS.renderAbc('score', text, {
+    add_classes: true,
+    clickListener: (abselem) => {
+      if (abselem && (abselem.el_type === 'note' || abselem.el_type === 'rest')) {
+        activeSpan = { start: abselem.startChar, end: abselem.endChar };
+        const spans = orderedMusicSpans();
+        const idx = spans.findIndex(s => s.start === abselem.startChar);
+        if (idx >= 0) {
+          selectNote(idx);
+          if (document.activeElement === $('#abc')) $('#abc').blur();
+        } else {
+          selectInCode(activeSpan);
+          moveScoreCursorToChar(abselem.startChar);
+        }
+      }
+    },
+  })[0];
+  playVisualObj._src = text;
+  engravedObj = playVisualObj;   // same engraved object — keep cursor sync DOM refs fresh
+  try { playVisualObj.setTiming(); } catch (e) {}   // populates noteTimings + totalTime
+  // Local FluidR3 piano samples (89 files) — abcjs's default CDN is unreachable from
+  // some networks, which killed playback with "Can't load sound at paulrosen.github.io".
+  await synthCtl.init({ visualObj: playVisualObj,
+    options: { soundFontUrl: '/static/soundfonts/FluidR3_GM/' } });
+  $('#playerBar').style.display = 'flex';
+  return synthCtl;
+}
+
+function fmtTime(sec) {
+  const m = Math.floor(sec / 60), s = Math.floor(sec % 60);
+  return m + ':' + String(s).padStart(2, '0');
+}
+
+// abcjs position contract (from abcjs source):
+//   start():  startTimeSec = ctx.currentTime - resumePosition
+//             → (ctx.currentTime - startTimeSec) IS the absolute position in the tune.
+//   pause():  pausedTimeSec = stop() = absolute position at pause.
+//   seek(t):  when idle sets pausedTimeSec; when running restarts the buffer at t and
+//             start() semantics make startTimeSec absolute again.
+// Therefore no extra offset bookkeeping is needed anywhere.
+function currentPos(ctl) {
+  if (ctl && ctl.isRunning && window.ABCJS.synth && ABCJS.synth.activeAudioContext) {
+    const ctx = ABCJS.synth.activeAudioContext();
+    if (ctx && ctl.startTimeSec !== undefined) return Math.max(0, ctx.currentTime - ctl.startTimeSec);
+  }
+  if (ctl && ctl.pausedTimeSec !== undefined) return ctl.pausedTimeSec;
+  return 0;
+}
+
+function updatePlayUI() {
+  if (!synthCtl) return;
+  const dur = synthCtl.duration || 0;
+  const pos = Math.min(currentPos(synthCtl), dur);
+  $('#playTime').textContent = fmtTime(pos) + ' / ' + fmtTime(dur);
+  if (!seekDragging && dur > 0) $('#seek').value = Math.round(pos / dur * 1000);
+}
+
+function playTick() {
+  updatePlayUI();
+  if (synthCtl && synthCtl.isRunning) {
+    playTimer = setTimeout(playTick, 200);
+  } else {
+    $('#btnPlay').textContent = '▶ 播放';
+    clearTimeout(playTimer);
+  }
+}
+
+function highlightAt(sec) {
+  // Jump the highlight to an arbitrary position without touching the audio or interval.
+  if (!playVisualObj) return;
+  try { playVisualObj.setTiming(); } catch (e) {}
+  const timings = playVisualObj.noteTimings || [];
+  if (!timings.length) return;
+  let idx = timings.findIndex(t => t.milliseconds / 1000 >= sec);
+  if (idx < 0) idx = timings.length - 1;
+  const ev = timings[Math.max(0, idx - 1)];
+  if (ev && ev.elements && ev.elements.length) highlightElements(ev.elements);
+}
+
+function syncCodeFromEvent(ev) {
+  // Follow the playhead in the code pane: select the token under playback and keep it
+  // in view. Skips events without a source span (keeps the previous position).
+  if (!ev || ev.startChar === undefined) return;
+  const ta = $('#abc');
+  ta.setSelectionRange(ev.startChar, ev.endChar !== undefined ? ev.endChar : ev.startChar);
+  updateCodeHl();
+  const cs = getComputedStyle(ta);
+  const lineHeight = parseFloat(cs.lineHeight) || 19.2;
+  const paddingTop = parseFloat(cs.paddingTop) || 0;
+  const line = ta.value.slice(0, ev.startChar).split('\n').length - 1;
+  const target = paddingTop + line * lineHeight;
+  // Only scroll if the line drifted outside a comfortable band around the center.
+  const minVisible = ta.scrollTop + lineHeight, maxVisible = ta.scrollTop + ta.clientHeight - 2 * lineHeight;
+  const caretPx = target - paddingTop + lineHeight;
+  if (caretPx < minVisible || caretPx > maxVisible)
+    ta.scrollTop = Math.max(0, target - (ta.clientHeight - lineHeight) / 2);
+}
+function startHighlight(fromSec) {
+  // Own cursor driver: map the current playback position onto noteTimings.
+  // (abcjs TimingCallbacks relies on requestAnimationFrame, which is throttled
+  // or parked entirely in hidden/headless tabs — a setInterval is deterministic.)
+  stopHighlight();
+  if (!playVisualObj) return;
+  try { playVisualObj.setTiming(); } catch (e) {}
+  const timings = playVisualObj.noteTimings || [];
+  if (!timings.length) return;
+  let idx = timings.findIndex(t => t.milliseconds / 1000 >= fromSec);
+  if (idx < 0) idx = timings.length - 1;
+  highlightAt(fromSec);   // land the cursor immediately at the start position
+  let lastEv = null;
+  timingCb = setInterval(() => {
+    if (!synthCtl) return stopHighlight();
+    if (seekDragging) return;   // user is dragging the slider; input handler owns the cursor
+    const pos = currentPos(synthCtl);
+    const ms = pos * 1000;
+    while (idx < timings.length && timings[idx].milliseconds <= ms) idx++;
+    const ev = timings[Math.max(0, idx - 1)];
+    // Keep the previous highlight through events with no drawable elements (bars, ties).
+    if (ev && ev.elements && ev.elements.length) highlightElements(ev.elements);
+    // Mirror the playhead into the code pane: select + scroll the current token.
+    if (ev && ev !== lastEv) { lastEv = ev; syncCodeFromEvent(ev); }
+  }, 150);
+}
+
+function stopHighlight() {
+  if (timingCb) { clearInterval(timingCb); timingCb = null; }
+  clearHighlight();
+}
+
+function caretPlayPosition(ctl) {
+  // Playback starts from the user's current focus: the last code caret (which the
+  // orange score cursor mirrors). Falls back to the pause point, then the beginning.
+  // Uses lastCaretChar — captured while the textarea had focus — because clicking the
+  // play button itself steals focus before this handler runs.
+  const char = lastCaretChar;
+  if (playVisualObj && playVisualObj.noteTimings && playVisualObj.noteTimings.length) {
+    const timings = playVisualObj.noteTimings;
+    const firstMusic = timings.find(t => t.startChar !== undefined);
+    if (firstMusic) {
+      if (char < firstMusic.startChar) return 0;   // caret on headers/comments = from the top
+      let ev = null;
+      for (const t of timings) {
+        if (t.startChar === undefined) continue;
+        if (t.startChar > char) break;
+        ev = t;
+      }
+      if (ev) return ev.milliseconds / 1000;
+    }
+  }
+  return (ctl && ctl.pausedTimeSec !== undefined) ? ctl.pausedTimeSec : 0;
+}
+
+$('#btnPlay').onclick = async () => {
+  try {
+    const ctl = await ensureSynth();
+    if (!ctl) return;
+    if (ctl.isRunning) {
+      // abcjs pause() stores the absolute position itself; no override needed.
+      ctl.pause();
+      stopHighlight();
+      $('#btnPlay').textContent = '▶ 播放';
+      updatePlayUI();
+    }
+    else {
+      // Start from where the user is looking: code caret > pause point > beginning.
+      const resume = caretPlayPosition(ctl);
+      await ctl.prime();
+      ctl.pausedTimeSec = resume;
+      ctl.start();   // resumes from pausedTimeSec; startTimeSec is absolute
+      startHighlight(resume);
+      $('#btnPlay').textContent = '⏸ 暂停';
+      clearTimeout(playTimer);
+      playTick();
+    }
+  } catch (err) { toast('播放失败: ' + err.message); }
+};
+
+// Seek: drag or click the progress bar to jump.
+// ctl.duration is undefined until the first prime(); fall back to the tune's
+// total time so seeking works before playback has ever started.
+function seekDuration(ctl) {
+  return (ctl && ctl.duration) ||
+         (playVisualObj && playVisualObj.getTotalTime && playVisualObj.getTotalTime()) || 0;
+}
+
+$('#seek').addEventListener('input', async () => {
+  seekDragging = true;
+  const ctl = await ensureSynth();
+  const dur = seekDuration(ctl);
+  if (!dur) return;
+  const target = (+$('#seek').value / 1000) * dur;
+  $('#playTime').textContent = fmtTime(target) + ' / ' + fmtTime(dur);
+  // Move the score highlight live while dragging (no audio operations).
+  try { highlightAt(target); } catch (e) {}
+});
+
+$('#seek').addEventListener('change', async () => {
+  const ctl = await ensureSynth();
+  const dur = seekDuration(ctl);
+  if (!ctl || !dur) { seekDragging = false; return; }
+  const target = (+$('#seek').value / 1000) * dur;
+  if (ctl.isRunning && ctl.duration) {
+    // Buffers are primed: jump the live audio. abcjs's seek-while-running restarts
+    // the buffer at target but leaves startTimeSec stale; patch it so currentPos(),
+    // pause(), and the highlight all stay in absolute tune time.
+    try {
+      ctl.seek(target, 'seconds');
+      if (window.ABCJS.synth.activeAudioContext) {
+        const ctx = ABCJS.synth.activeAudioContext();
+        ctl.startTimeSec = ctx.currentTime - target;
+      }
+    } catch (e) { /* ignore */ }
+    startHighlight(target);   // restart the cursor from the new position
+  } else {
+    // Not primed yet (never played) or paused: cue the position.
+    ctl.pausedTimeSec = target;
+    try { startHighlight(target); } catch (e) {}
+  }
+  seekDragging = false;
+  updatePlayUI();
+});
+
+// Double click a note = audition just that note.
+document.addEventListener('dblclick', e => {
+  const g = e.target.closest('.abcjs-note, .abcjs-rest');
+  if (!g) return;
+  $('#btnPlay').click();  // simple: start playback from current position
+});
+
+// ---------- toolbar ----------
+$('#btnUndo').onclick = () => doUndo();
+$('#btnRedo').onclick = () => doRedo();
+$('#btnSave').onclick = async () => {
+  const r = await fetch(`/api/songs/${sid}/abc`, { method: 'PUT',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ abc: $('#abc').value }) });
+  toast(r.ok ? '已保存' : '保存失败');
+};
+$('#btnReset').onclick = () => { if (confirm('放弃所有修改？')) { $('#abc').value = originalAbc; render(); } };
+$('#btnRegen').onclick = async () => {
+  await fetch(`/api/songs/${sid}/abc`, { method: 'PUT',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ abc: $('#abc').value }) });
+  const r = await fetch(`/api/songs/${sid}/regenerate`, { method: 'POST' });
+  if (r.ok) toast('已加入生成队列，回主页查看进度');
+  else toast('重生成失败：' + (await r.json()).detail);
+};
+
+// autosave draft locally every 2s when dirty
+$('#abc').addEventListener('input', () => {
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(() => localStorage.setItem('draft-' + sid, $('#abc').value), 2000);
+});
+const draft = localStorage.getItem('draft-' + sid);
+if (draft && draft !== originalAbc) {
+  $('#abc').value = draft;
+}
+
+loadSong();
+</script>
+<div id="helpPanel">
+  <div class="helpCard">
+    <h3>⌨️ 快捷键 <button class="helpClose" onclick="toggleHelp()">✕</button></h3>
+    <table>
+      <tr><td>← / →</td><td>选择前一个 / 下一个音符</td></tr>
+      <tr><td>↑ / ↓</td><td>音高 +1 / −1 半音</td></tr>
+      <tr><td>Shift+↑ / ↓</td><td>升 / 降八度</td></tr>
+      <tr><td>1 – 8</td><td>时值：三十二分…二分音符</td></tr>
+      <tr><td>R</td><td>重复当前音符</td></tr>
+      <tr><td>Backspace</td><td>删除（变休止）</td></tr>
+      <tr><td>空格</td><td>从选中音符播放 / 暂停</td></tr>
+      <tr><td>⌘Z / ⌘⇧Z</td><td>撤销 / 重做</td></tr>
+      <tr><td>⌘S</td><td>保存乐谱</td></tr>
+      <tr><td>拖拽音符</td><td>上下拖动改音高</td></tr>
+      <tr><td>右键音符</td><td>菜单：休止/删除/八度/时值</td></tr>
+      <tr><td>? </td><td>显示此帮助</td></tr>
+    </table>
+    <div class="hint">先点击谱面任意音符进入编辑模式，快捷键即生效；在代码区输入时保持原生文本编辑</div>
+  </div>
+</div>
+</body>
+</html>
