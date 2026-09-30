@@ -119,7 +119,7 @@ If the script cannot run in a restricted network, run it on any connected machin
 
 ## Open Source Statement / 开源声明
 
-This repository's own code is released under the **MIT License** (see [LICENSE](LICENSE)). Third-party components and their licenses:
+This repository's own code is released under the **Apache License 2.0** (see [LICENSE](LICENSE)). Third-party components and their licenses:
 
 - **YuE** (Apache-2.0) — lyrics-to-song generation pipeline and symbolic planning; model weights follow their MODEL_LICENSE, local inference only
 - **SheetSage2 / MERT2** (per model card) — audio-to-melody/chords/meter transcription

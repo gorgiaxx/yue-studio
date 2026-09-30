@@ -2,6 +2,8 @@
 name = "yue-studio"
 version = "0.1.0"
 description = "Web UI for YuE2 music generation and SheetSage2 transcription on Apple Silicon"
+license = "Apache-2.0"
+license-files = ["LICENSE"]
 requires-python = ">=3.12"
 dependencies = [
     "yue2-infer",
