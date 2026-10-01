@@ -338,7 +338,12 @@ placeholder="[Intro]
                     <div class="field" style="margin-bottom:0">
                       <label class="field-label" for="seed">Seed</label>
                       <input class="input" type="number" id="seed" value="831001" min="0" style="max-width:200px">
-                      <div class="hint">相同 seed + 相同输入可复现结果。未来可扩展 BPM / key / model 等参数。</div>
+                      <div class="hint">相同 seed + 相同输入可复现结果。</div>
+                    </div>
+                    <div class="field" style="margin-bottom:0">
+                      <label class="field-label" for="genCount">生成次数 <span class="opt">— 批量排队</span></label>
+                      <input class="input" type="number" id="genCount" value="1" min="1" max="20" style="max-width:200px">
+                      <div class="hint">排队生成 N 次（串行执行）。每次任务自动生成不同 seed，歌名以 <code>_001 _002 …</code> 迭代；相同 seed 则完全一致，无批量意义。</div>
                     </div>
                   </div>
                 </details>
@@ -787,18 +792,28 @@ $('#genForm').onsubmit = async e => {
   const cot = $('#cot').value;
   const abcVal = (cot === 'melody') ? ($('#abc').value.trim() || null) : null;
   if (cot === 'melody' && !abcVal) { toast('Melody 模式需要 ABC 乐谱', 'err'); return; }
-  const body = {
-    title: $('#title').value, style: $('#style').value, lyrics: $('#lyrics').value,
-    cot, abc: abcVal, seed: +$('#seed').value,
-  };
+  const baseTitle = $('#title').value.trim() || 'Untitled';
+  const n = Math.min(20, Math.max(1, Math.floor(+$('#genCount').value || 1)));
   btn.disabled = true; prog.classList.add('on');
   try {
-    const r = await fetch('/api/songs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
-    if (!r.ok) { toast((await r.json()).detail || '提交失败', 'err'); return; }
-    $('#abc').value = '';
-    toast('已加入生成队列', 'ok');
-    showView('songs');
-    refresh();
+    let ok = 0;
+    for (let i = 0; i < n; i++) {
+      // N>1: vary the seed per task (same seed ⇒ identical output, pointless in a batch)
+      const seed = n > 1 ? (Math.floor(Math.random() * 2**31)) : +$('#seed').value;
+      const title = n > 1 ? `${baseTitle}_${String(i + 1).padStart(3, '0')}` : baseTitle;
+      const body = {
+        title, style: $('#style').value, lyrics: $('#lyrics').value,
+        cot, abc: abcVal, seed,
+      };
+      const r = await fetch('/api/songs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+      if (r.ok) ok++; else { toast((await r.json()).detail || '提交失败', 'err'); break; }
+    }
+    if (ok) {
+      $('#abc').value = '';
+      toast(ok > 1 ? `已加入 ${ok} 个生成任务（串行队列）` : '已加入生成队列', 'ok');
+      showView('songs');
+      refresh();
+    }
   } finally {
     btn.disabled = false; prog.classList.remove('on');
   }
