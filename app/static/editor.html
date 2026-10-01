@@ -73,6 +73,9 @@
   #status { font-weight: 600; color: var(--fg-2); }
   #status.err { color: var(--error); }
   #status.ok  { color: var(--success); }
+  .val { font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 12px; margin-left: 8px; }
+  .val.ok { color: var(--success); border: 1px solid var(--success); }
+  .val.err { color: var(--error); border: 1px solid var(--error); max-width: 40%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
   /* ABC code editor */
   #codeStack { position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; }
@@ -246,7 +249,8 @@
       <div class="pane-bar">
         <span class="label">ABC Source</span>
         <span class="spacer"></span>
-        <span id="status">渲染中…</span>
+        <span id="status">渲染中…</span><span id="valStatus" class="val" style="display:none"></span>
+
       </div>
       <div id="codeStack">
         <div id="codeHl"></div>
@@ -396,6 +400,7 @@ async function loadSong() {
     $('#songTitle').textContent = s.title;
     $('#sourceTag').textContent = 'Song · ' + s.style;
     originalAbc = s.abc_generated || s.abc || '';
+    $('#btnRegen').dataset.cot = s.cot;
     $('#btnRegen').disabled = !(s.cot === 'melody' || s.cot === 'full');
   }
   $('#abc').value = originalAbc;
@@ -405,6 +410,78 @@ async function loadSong() {
 
 
 // ---------- model: abcjs clickListener provides startChar/endChar source spans ----------
+
+// ---------- key-signature & accidental state (native YuE2 semantics) ----------
+// YuE2/SheetSage2 native ABC: pitches are relative to the ACTIVE key signature;
+// an explicit accidental propagates BY LETTER ACROSS OCTAVES within the bar and
+// resets at the barline or key change. This mirrors app/abc_native.py — the
+// browser preview (abcjs) must agree with what YuE2 will actually hear.
+const KEY_SIG = {
+  Cb:{}, Gb:{B:-1,E:-1,A:-1,D:-1,G:-1,C:-1}, Db:{B:-1,E:-1,A:-1,D:-1,G:-1}, Ab:{B:-1,E:-1,A:-1,D:-1},
+  Eb:{B:-1,E:-1,A:-1}, Bb:{B:-1,E:-1}, F:{B:-1}, C:{}, G:{F:1}, D:{F:1,C:1}, A:{F:1,C:1,G:1},
+  E:{F:1,C:1,G:1,D:1}, B:{F:1,C:1,G:1,D:1,A:1}, 'F#':{F:1,C:1,G:1,D:1,A:1,E:1},
+  'C#':{F:1,C:1,G:1,D:1,A:1,E:1,B:1},
+  Abm:{B:-1,E:-1,A:-1,D:-1,G:-1,C:-1,F:-1}, Ebm:{B:-1,E:-1,A:-1,D:-1,G:-1,C:-1},
+  Bbm:{B:-1,E:-1,A:-1,D:-1,G:-1}, Fm:{B:-1,E:-1,A:-1,D:-1}, Cm:{B:-1,E:-1,A:-1},
+  Gm:{B:-1,E:-1}, Dm:{B:-1}, Am:{}, Em:{F:1}, Bm:{F:1,C:1}, 'F#m':{F:1,C:1,G:1,D:1,A:1,E:1,B:1},
+  'C#m':{F:1,C:1,G:1,D:1,A:1,E:1}, 'G#m':{F:1,C:1,G:1,D:1,A:1,E:1}, 'D#m':{F:1,C:1,G:1,D:1,A:1},
+  'A#m':{F:1,C:1,G:1,D:1},
+};
+
+function keySigOf(key) {
+  const sig = KEY_SIG[key];
+  if (!sig) return null;      // unsupported key → caller falls back to naturals
+  return Object.assign({A:0,B:0,C:0,D:0,E:0,F:0,G:0}, sig);
+}
+
+function accidentalStateAt(charIdx) {
+  // Walk the ABC text up to charIdx, tracking the active key signature, inline
+  // [K:...] changes, and per-bar letter-state propagation (native rule).
+  const text = $('#abc').value;
+  let sig = null;             // active key signature (null until first K:)
+  let barAcc = {};            // letters altered in the CURRENT bar
+  // find the start of the bar containing charIdx (barlines are |)
+  const barStart = (() => {
+    let i = charIdx;
+    while (i > 0 && text[i - 1] !== '|' && text[i - 1] !== '\n') i--;
+    return i;
+  })();
+  for (let i = 0; i < barStart; i++) {
+    const ch = text[i];
+    if (ch === '\n') { /* header lines end with newline; music bars end with | */ }
+    if (ch === '|') barAcc = {};           // barline resets accidentals
+    const km = /^\[K:([^\]\n]+)\]/.exec(text.slice(i));
+    if (km) { sig = keySigOf(km[1]); barAcc = {}; continue; }
+    const hl = /^K:([^\n]+)/.exec(text.slice(i, i + 12));
+    if (hl && (i === 0 || text[i - 1] === '\n')) { sig = keySigOf(hl[1].trim()); barAcc = {}; continue; }
+    // explicit accidentals on notes (native propagates by letter, across octaves)
+    const am = /^(\^\^|__|\^|_|=)([A-Ga-g])/.exec(text.slice(i, i + 3));
+    if (am) { barAcc[am[2].toUpperCase()] = {'^^':2,'__':-2,'^':1,'_':-1,'=':0}[am[1]]; }
+  }
+  // walk the bar itself up to the token
+  for (let i = barStart; i < charIdx; i++) {
+    const am = /^(\^\^|__|\^|_|=)([A-Ga-g])/.exec(text.slice(i, i + 3));
+    if (am) barAcc[am[2].toUpperCase()] = {'^^':2,'__':-2,'^':1,'_':-1,'=':0}[am[1]];
+    if (text[i] === '|') barAcc = {};
+  }
+  return { sig, barAcc };
+}
+
+function soundingMidi(info, charIdx) {
+  // TRUE sounding MIDI pitch of a written note token, resolving the active key
+  // signature and bar accidental state. info from classifyRaw().
+  if (info.kind !== 'note') return null;
+  const { sig, barAcc } = accidentalStateAt(charIdx);
+  const letter = info.letter.toUpperCase();
+  const letterSemi = SEMIS[info.letter.toLowerCase()];
+  const base = info.octave * 12 + letterSemi;   // C..B at middle octave
+  let alteration;
+  if (info.acc) alteration = {'^^':2,'__':-2,'^':1,'_':-1,'=':0}[info.acc];
+  else if (letter in barAcc) alteration = barAcc[letter];       // propagated this bar
+  else if (sig && letter in sig) alteration = sig[letter];     // key signature
+  else alteration = 0;
+  return base + alteration + 60;
+}
 
 // ---------- edit operations (operate on char ranges of the textarea) ----------
 const NAMES = ['c','d','e','f','g','a','b'];
@@ -438,48 +515,187 @@ function classifyRaw(raw) {
   return { kind: 'note', acc, letter, octave, dur, tie };
 }
 
+function chordPrefixOf(raw) {
+  // abcjs spans a note token together with any preceding quoted chord annotation
+  // ("G"B16). Edits must preserve the chord and only touch the note/rest part.
+  const m = /^("[^"]*")/.exec(raw);
+  return m ? m[1] : '';
+}
+
+function editTarget(span) {
+  // The editable sub-span: skips a leading chord annotation, reclassifies.
+  const pre = chordPrefixOf(span.raw);
+  if (!pre) return span;
+  const raw = span.raw.slice(pre.length);
+  return { start: span.start + pre.length, end: span.end, raw,
+           info: classifyRaw(raw), prefix: pre };
+}
+
 function replaceSpan(span, newRaw) {
   const text = $('#abc').value;
   $('#abc').value = text.slice(0, span.start) + newRaw + text.slice(span.end);
 }
-function shiftPitch(span, semis) {
+function shiftPitch(outerSpan, semis) {
+  const span = editTarget(outerSpan);   // skip chord annotation, keep it intact
   const info = span.info;
   if (info.kind !== 'note') return null;
-  // abs: semitones above middle C (octave 0 = C..B), including the written accidental.
-  // ^ = +1, ^^ = +2, _ = -1, __ = -2; = forces natural (key signature ignored).
-  let accShift = info.acc === '^' ? 1 : info.acc === '^^' ? 2 : info.acc === '_' ? -1 : info.acc === '__' ? -2 : 0;
-  let abs = info.octave * 12 + SEMIS[info.letter.toLowerCase()] + accShift + semis;
-  const newOct = Math.floor(abs / 12);
-  let pc = ((abs % 12) + 12) % 12;
-  // Prefer naturals; spell black keys as sharps (^) of the natural a semitone below.
-  let accidental = '';
-  if (!NAMES.some(n => SEMIS[n] === pc)) {
-    accidental = '^';
-    pc = (pc + 11) % 12;   // the natural below the black key
+  // Resolve the TRUE sounding MIDI (key signature + bar accidentals, native
+  // propagation rules), THEN shift. This fixes the old bug where an unmarked
+  // F in K:G (sounds F#) was treated as F-natural.
+  const curMidi = soundingMidi(info, span.start);
+  if (curMidi == null) return null;
+  const target = curMidi + semis;
+  if (target < 0 || target > 127) return null;
+
+  // A tied note is ONE sounding note spread over multiple tokens. Pitch edits
+  // must rewrite every segment, or the tie changes pitch (native-invalid).
+  // Rewrite RIGHT-TO-LEFT so earlier replacements don't shift later indices.
+  const segments = tiedSegments(span);
+  const spelling0 = spellPitch(target, span.start);
+  // seg0: replace the FULL outer span (chord prefix included in the new raw).
+  // Later segments: replace just the token. Right-to-left keeps indices stable
+  // because the first replacement is outerSpan (leftmost) and happens LAST.
+  for (let i = segments.length - 1; i >= 1; i--) {
+    const seg = segments[i];
+    replaceSpan(seg, spelling0.note + (seg.info.dur || '') + (seg.info.tie ? '-' : ''));
   }
-  const letter = NAMES.find(n => SEMIS[n] === pc);
-  // newOct 0 => uppercase C..B; 1 => c..b; >=2 => c'+; <0 => C,+
-  const octaveStr = newOct >= 2 ? "'".repeat(newOct - 1) : newOct < 0 ? ','.repeat(-newOct) : '';
-  const caseLetter = newOct >= 1 ? letter : letter.toUpperCase();
-  const newRaw = accidental + caseLetter + octaveStr + (info.dur || '') + (info.tie ? '-' : '');
-  replaceSpan(span, newRaw);
-  return { start: span.start, end: span.start + newRaw.length };   // updated span for drag tracking
+  {
+    const seg = segments[0];
+    const raw = (seg.prefix || '') + spelling0.note + (seg.info.dur || '') + (seg.info.tie ? '-' : '');
+    replaceSpan(outerSpan, raw);
+    return { start: outerSpan.start, end: outerSpan.start + raw.length };
+  }
 }
 
-function scaleDur(span, factor) {
+function spellPitch(target, charIdx) {
+  const newOct = Math.floor((target - 60) / 12);       // octave relative to middle C
+  let pc = ((target - 60) % 12 + 12) % 12;             // pitch class 0..11
+  // Spell: prefer naturals; black keys as sharps of the natural below.
+  let accidental = '';
+  if (!NAMES.some(n => SEMIS[n] === pc)) { accidental = '^'; pc = (pc + 11) % 12; }
+  const letter = NAMES.find(n => SEMIS[n] === pc);
+  const octaveStr = newOct >= 2 ? "'".repeat(newOct - 1) : newOct < 0 ? ','.repeat(-newOct) : '';
+  const caseLetter = newOct >= 1 ? letter : letter.toUpperCase();
+  // Write the EXPLICIT accidental when the key-signature/bar state differs, so
+  // the sounding pitch is unambiguous to YuE2 (e.g. F natural in K:G → =F).
+  let accOut = accidental;
+  const { sig, barAcc } = accidentalStateAt(charIdx);
+  const L = letter.toUpperCase();
+  const inherited = L in barAcc ? barAcc[L] : (sig && L in sig ? sig[L] : 0);
+  if (accidental === '' && inherited !== 0) accOut = '=';
+  if (accidental === '^' && inherited === 1) accOut = '';
+  return { note: accOut + caseLetter + octaveStr, midi: target };
+}
+
+function tiedSegments(span) {
+  // All tokens of the tied note that `span` belongs to: a token ending in '-'
+  // merges with the following token (native: unmarked continuation keeps the
+  // tied pitch). Scan ONE exact token at a time — never a loose multi-match.
+  const segs = [span];
+  const text = $('#abc').value;
+  let cur = span;
+  while (cur.info.tie) {
+    const m = /^((?:__|_|=|\^\^|\^)?[a-gA-G](?:,+|'+)?\d*)(-?)/.exec(text.slice(cur.end));
+    if (!m) break;
+    const start = cur.end + m.index;
+    const raw = m[0];
+    const info = classifyRaw(raw);
+    if (info.kind !== 'note') break;
+    segs.push({ start, end: start + raw.length, raw, info, prefix: '' });
+    cur = segs[segs.length - 1];
+    if (!info.tie) break;
+  }
+  return segs;
+}
+
+// ---------- duration-conserving operations ----------
+// Native ABC bars must fill the meter exactly. Any op that changes a token's
+// length must compensate within the same bar (from adjacent rests) or refuse.
+
+function durUnits(tok) {
+  // Duration of a single token in L: units (number or empty = 1).
+  const m = tok.match(/(\d+\/\d+|\d+)$/);
+  if (!m) return 1;
+  return m[1].includes('/') ? eval(m[1]) : +m[1];
+}
+
+function barSpanOf(charIdx) {
+  // [start, end) char range of the bar (between | or line boundaries) containing charIdx.
+  const text = $('#abc').value;
+  let start = charIdx, end = charIdx;
+  while (start > 0 && text[start - 1] !== '|') start--;
+  while (end < text.length && text[end] !== '|') end++;
+  return { start, end };
+}
+
+function splitNote(outerSpan) {
+  // R key: split the selected note into two tied halves — same sounding pitch,
+  // same total duration. Replaces the old token-duplicating "repeat" that broke
+  // bar duration. Only offered when the duration splits into two supported units.
+  const span = editTarget(outerSpan);
+  const info = span.info;
+  if (info.kind !== 'note') return null;
+  const total = durUnits(span.raw);
+  if (total % 2 !== 0 || total < 2) { toast(`时值 ${total} 无法对半拆分（需 ≥2 的偶数单位）`); return null; }
+  const half = total / 2;
+  const head = span.raw.replace(/(\d+\/\d+|\d+)(-?)$/, '');
+  const durStr = String(half);
+  const newRaw = span.prefix + head + durStr + '-' + head + durStr + (info.tie ? '-' : '');
+  replaceSpan(outerSpan, newRaw);
+  return { start: outerSpan.start, end: outerSpan.start + newRaw.length };
+}
+
+function scaleDur(outerSpan, factor) {
+  const span = editTarget(outerSpan);
   const info = span.info;
   if (info.kind !== 'note' && info.kind !== 'rest') return;
-  let cur = 1;
-  const dm = span.raw.match(/(\d+\/\d+|\d+)(-?)$/);
-  if (dm) cur = dm[1].includes('/') ? eval(dm[1]) : +dm[1];
+  const cur = durUnits(span.raw);
   let next = cur * factor;
-  if (next < 1/8) next = 1/8;
-  if (next > 32) next = 32;
-  const durStr = Number.isInteger(next) ? String(next) : simplifyFrac(next);
-  const tie = dm && dm[2] ? '-' : '';
+  if (next < 1) next = 1;
+  if (next > 48) next = 48;
+  if (!Number.isInteger(next)) { toast('时值必须为整数单位'); return; }
+  // Duration conservation: the bar must stay full. Absorb the change from an
+  // adjacent rest in the same bar; otherwise refuse.
+  const delta = next - cur;
+  if (delta !== 0 && !absorbFromAdjacentRest(span, delta)) {
+    toast('无法在小节内补偿时值（相邻无足够休止）；已拒绝以保持 bar duration');
+    return;
+  }
+  const durStr = String(next);
+  const tie = span.raw.endsWith('-') ? '-' : '';
   const head = span.raw.replace(/(\d+\/\d+|\d+)(-?)$/, '');
   replaceSpan(span, head + durStr + tie);
 }
+
+
+function absorbFromAdjacentRest(span, delta) {
+  // delta > 0: shorten an adjacent rest by delta (its units move to this token).
+  // delta < 0: lengthen an adjacent rest by |delta|.
+  const { start: bs, end: be } = barSpanOf(span.start);
+  const text = $('#abc').value;
+  const bar = text.slice(bs, be);
+  const restRe = /z(\d+)?/g;
+  const rests = [];
+  let m;
+  while ((m = restRe.exec(bar))) {
+    const rStart = bs + m.index, rEnd = bs + m.index + m[0].length;
+    if (rEnd <= span.start || rStart >= span.end) rests.push({ start: rStart, end: rEnd, units: m[1] ? +m[1] : 1 });
+  }
+  if (delta > 0) {
+    const r = rests.find(r => r.units >= delta);
+    if (!r) return false;
+    const remaining = r.units - delta;
+    if (remaining > 0) replaceSpan(r, 'z' + remaining);
+    else $('#abc').value = $('#abc').value.slice(0, r.start) + $('#abc').value.slice(r.end);
+    return true;
+  } else {
+    const r = rests[0];
+    if (!r) return false;
+    replaceSpan(r, 'z' + (r.units + (-delta)));
+    return true;
+  }
+}
+
 function simplifyFrac(v) {
   for (let d = 2; d <= 64; d *= 2) {
     const n = v * d;
@@ -488,21 +704,29 @@ function simplifyFrac(v) {
   return String(v);
 }
 
-function toggleRest(span) {
+function toggleRest(outerSpan) {
+  const span = editTarget(outerSpan);
   const info = span.info;
   if (info.kind === 'rest') {
     const backup = restBackup.get(span.start) || 'c';
     replaceSpan(span, backup + (info.dur || ''));
   } else {
     restBackup.set(span.start, span.raw.replace(/(\d+\/\d+|\d+)(-?)$/, ''));
-    replaceSpan(span, 'z' + (info.dur || '') + (span.raw.endsWith('-') ? '-' : ''));
+    const newRaw = span.prefix + 'z' + (info.dur || '') + (span.raw.endsWith('-') ? '-' : '');
+    replaceSpan(outerSpan, newRaw);
   }
 }
 const restBackup = new Map();
 
-function deleteNote(span) {
-  if (span.info.kind === 'note') replaceSpan(span, 'z' + (span.info.dur || ''));
-  else replaceSpan(span, '');
+function deleteNote(outerSpan) {
+  // Delete = same-duration rest. Time must be preserved (never shortens the bar).
+  // A chord annotation on the token stays (it applies to the new rest position).
+  const span = editTarget(outerSpan);
+  if (span.info.kind === 'note') {
+    replaceSpan(span, 'z' + (span.info.dur || ''));
+    // if a chord prefix existed before the note it must be re-inserted before the rest
+    if (span.prefix) $('#abc').value = $('#abc').value.slice(0, span.start) + span.prefix + $('#abc').value.slice(span.start);
+  } else replaceSpan(span, '');
 }
 
 // ---------- selection: clicking a note highlights its source ----------
@@ -784,11 +1008,9 @@ document.addEventListener('keydown', e => {
       break;
     case 'r': case 'R':
       e.preventDefault();
-      editSelected(s => {
-        // Duplicate the token after the current one.
-        const text = $('#abc').value;
-        $('#abc').value = text.slice(0, s.end) + s.raw + text.slice(s.end);
-      });
+      // R now SPLITS the note into two tied halves (duration-conserving).
+      // The old token-duplicating repeat broke bar duration — removed.
+      editSelected(s => splitNote(s));
       break;
     case ' ':
       e.preventDefault();
@@ -802,10 +1024,18 @@ document.addEventListener('keydown', e => {
   }
 });
 
-function scaleDurTo(span, durStr) {
+function scaleDurTo(outerSpan, durStr) {
+  const span = editTarget(outerSpan);
   const raw = span.raw;
   const m = raw.match(/^((?:__|_|=|\^\^|\^)?[a-gA-G](?:,+|'+)?|[xzXZ])/);
   if (!m) return;
+  const cur = durUnits(raw);
+  const next = durUnits(durStr || '1');
+  const delta = next - cur;
+  if (delta !== 0 && !absorbFromAdjacentRest(span, delta)) {
+    toast('无法在小节内补偿时值；已拒绝以保持 bar duration');
+    return;
+  }
   const head = m[1];
   const tie = raw.endsWith('-') ? '-' : '';
   replaceSpan(span, head + durStr + tie);
@@ -861,6 +1091,49 @@ document.addEventListener('selectionchange', () => {
 // ---------- interaction ----------
 let activeSpan = null;   // char range of last-clicked note/rest
 
+let NATIVE_OK = null;   // tri-state: null=unknown, true=YuE2-valid, false=invalid
+let nativeValidateTimer;
+
+function nativeValidate() {
+  // Server-side YuE2-native validation (app.abc_native). abcjs rendering is a UI
+  // preview ONLY — a score abcjs can draw may still be invalid for YuE2 (different
+  // accidental semantics, unsupported tokens, overfull bars).
+  clearTimeout(nativeValidateTimer);
+  nativeValidateTimer = setTimeout(async () => {
+    const abc = $('#abc').value;
+    try {
+      const r = await fetch('/api/abc/inspect', { method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ abc }) });
+      const d = await r.json();
+      const before = NATIVE_OK;
+      if (d.quick && d.quick.valid) {
+        NATIVE_OK = true;
+      } else {
+        NATIVE_OK = false;
+      }
+      updateValStatus(d);
+    } catch (e) { /* transient — keep last state */ }
+  }, 400);
+}
+
+function updateValStatus(inspect) {
+  const el = $('#valStatus');
+  if (!el) return;
+  el.style.display = 'inline-block';
+  if (NATIVE_OK) {
+    el.textContent = 'YuE2 Native: OK';
+    el.className = 'val ok';
+    $('#btnRegen').disabled = ($('#btnRegen').dataset.cot === 'off');
+  } else {
+    const err = (inspect && ((inspect.quick && inspect.quick.error) || inspect.error)) || 'invalid';
+    el.textContent = 'YuE2 Native: ' + err;
+    el.title = err;
+    el.className = 'val err';
+    $('#btnRegen').disabled = true;   // gate: never generate from an invalid score
+  }
+}
+
 function render() {
   refreshSaveState();
   const text = $('#abc').value;
@@ -869,6 +1142,8 @@ function render() {
     const msg = tuneBook.length ? (tuneBook[0].error || []).map(e => e.message || e).join('; ') : '无法解析';
     statusEl.textContent = '语法错误: ' + msg;
     statusEl.className = 'err';
+    NATIVE_OK = null;
+    updateValStatus(null);
     return;
   }
   lastGood = tuneBook[0];
@@ -894,9 +1169,10 @@ function render() {
   });
   engravedObj = ok[0];   // engraved tree with abcelem.startChar + elemset DOM refs
   const warns = (ok[0] && ok[0].warnings && ok[0].warnings.length) ? ok[0].warnings.length : 0;
-  statusEl.textContent = '渲染成功' + (warns ? `（${warns} 处警告）` : '');
+  statusEl.textContent = 'ABCJS Render: OK' + (warns ? `（${warns} 处警告）` : '');
   statusEl.className = 'ok';
   $('#playerBar').style.display = 'flex';
+  nativeValidate();      // re-check YuE2-native validity after every render
 }
 
 let renderTimer;
@@ -944,12 +1220,13 @@ function showMenu(x, y) {
     add('Octave Down', () => shiftPitch(span, -12), '⇧↓');
     sep();
   }
-  group('Duration');
+  group('Duration（自动补偿小节时值）');
   add('Double', () => scaleDur(span, 2));
   add('Half', () => scaleDur(span, .5));
+  if (isNote) add('Split into 2（同音连线对半拆）', () => splitNote(span), 'R');
   sep();
-  add(isRest ? 'Convert to Note' : 'Convert to Rest', () => toggleRest(span));
-  if (isNote) add('Delete', () => deleteNote(span), '⌫');
+  add(isRest ? 'Convert to Note' : 'Convert to Rest（保持时值）', () => toggleRest(span));
+  if (isNote) add('Delete → Rest（保持时值）', () => deleteNote(span), '⌫');
   menu.style.display = 'block';
   menu.style.left = Math.min(x, innerWidth - 220) + 'px';
   menu.style.top = Math.min(y, innerHeight - menu.offsetHeight - 10) + 'px';

@@ -305,31 +305,37 @@ placeholder="[Intro]
                   <span class="field-label">Generation Mode</span>
                   <div class="segmented" id="modeSeg">
                     <button type="button" data-mode="full" aria-pressed="true">
-                      <span class="seg-title">Smart Arrangement</span>
-                      <span class="seg-desc">AI 自动规划旋律 + 和弦</span>
+                      <span class="seg-title">Full</span>
+                      <span class="seg-desc">AI 规划旋律 + 和声</span>
                     </button>
                     <button type="button" data-mode="melody" aria-pressed="false">
-                      <span class="seg-title">Melody Guided</span>
-                      <span class="seg-desc">用指定 ABC 旋律重新编曲</span>
+                      <span class="seg-title">Melody</span>
+                      <span class="seg-desc">AI 规划旋律 / 指定旋律 Cover</span>
                     </button>
                     <button type="button" data-mode="off" aria-pressed="false">
-                      <span class="seg-title">Direct</span>
-                      <span class="seg-desc">跳过乐谱规划，直接生成</span>
+                      <span class="seg-title">Off</span>
+                      <span class="seg-desc">跳过 symbolic planning</span>
+                    </button>
+                    <button type="button" data-mode="instrumental" aria-pressed="false">
+                      <span class="seg-title">Instrumental</span>
+                      <span class="seg-desc">纯音乐：Vocal→Ins 转换后生成</span>
                     </button>
                   </div>
                   <input type="hidden" id="cot" value="full">
+                  <div class="hint" id="modeHint"></div>
                 </div>
 
                 <div class="field" id="abcField" hidden>
-                  <label class="field-label" for="scorePick">已有乐谱 <span class="opt">— 一键填入</span></label>
+                  <label class="field-label" for="scorePick">Optional Score <span class="opt">— 供应即条件生成</span></label>
                   <div class="rowBtns" style="gap:8px;margin-bottom:8px">
                     <select class="input" id="scorePick" style="flex:1"></select>
                     <button type="button" class="btn ghost" id="scoreFill">填入 →</button>
                   </div>
-                  <label class="field-label" for="abc">ABC Score <span class="opt">— melody 模式</span></label>
+                  <label class="field-label" for="abc">ABC Score <span class="opt" id="abcModeTag"></span></label>
                   <textarea class="textarea abc-editor" id="abc" spellcheck="false"
-                    placeholder="粘贴 ABC 乐谱，或从上方选择已有谱一键填入"></textarea>
-                  <div class="hint">ABC = 记录旋律/和弦的乐谱文本。可从转录库选择，或转写音频后在 Transcriptions 里一键复用。</div>
+                    placeholder="粘贴 ABC 乐谱，或从上方选择已有谱一键填入。留空 = 让 AI 自己规划。"></textarea>
+                  <div class="hint" id="abcHint"></div>
+                  <div id="abcDiag" class="hint" style="display:none"></div>
                 </div>
 
                 <details class="collapse" id="advBox">
@@ -343,7 +349,40 @@ placeholder="[Intro]
                     <div class="field" style="margin-bottom:0">
                       <label class="field-label" for="genCount">生成次数 <span class="opt">— 批量排队</span></label>
                       <input class="input" type="number" id="genCount" value="1" min="1" max="20" style="max-width:200px">
-                      <div class="hint">排队生成 N 次（串行执行）。每次任务自动生成不同 seed，歌名以 <code>_001 _002 …</code> 迭代；相同 seed 则完全一致，无批量意义。</div>
+                      <div class="hint">排队生成 N 次（串行执行）。每次任务自动生成不同 seed，歌名以 <code>_001 _002 …</code> 迭代。</div>
+                    </div>
+                    <div class="field" style="margin-bottom:0">
+                      <label class="field-label" for="cfgScale">CFG Scale <span class="opt">— 实验参数</span></label>
+                      <input class="input" type="number" id="cfgScale" placeholder="Auto（runtime 默认）" step="0.05" min="0" max="20" style="max-width:200px">
+                      <div class="hint">留空 = 使用 runtime 默认（Full/Melody≈1.0，Off≈1.01）。CFG 不是保证的提升，仅高级实验用。每次 attempt 记录实际生效值。</div>
+                    </div>
+                    <div class="field" style="margin-bottom:0">
+                      <label class="field-label" style="display:flex;align-items:center;gap:8px">
+                        <input type="checkbox" id="planFirst"> Plan First（先出谱，试听/编辑后再渲染音频）
+                      </label>
+                      <div class="hint">先运行 symbolic planning 保存乐谱；之后在歌曲详情里可试听 MIDI、编辑 ABC、native 校验后再渲染。不改谱则直接从原计划续跑，不重复规划。</div>
+                    </div>
+                    <div class="field" style="margin-bottom:0">
+                      <button type="button" class="btn ghost btn-sm" id="styleBuilderBtn">Style Prompt Builder…</button>
+                      <div id="styleBuilder" style="display:none;margin-top:10px">
+                        <div class="rowBtns" style="gap:6px;flex-wrap:wrap;margin-bottom:6px">
+                          <input class="input" id="sbLang" placeholder="Language（Mandarin / English…）" style="flex:1;min-width:110px">
+                          <input class="input" id="sbGenre" placeholder="Genre（Eurodance…）" style="flex:1;min-width:110px">
+                          <input class="input" id="sbEra" placeholder="Era（2000s…）" style="flex:1;min-width:90px">
+                        </div>
+                        <div class="rowBtns" style="gap:6px;flex-wrap:wrap;margin-bottom:6px">
+                          <input class="input" id="sbVocal" placeholder="Vocal（youthful female…）" style="flex:1;min-width:110px">
+                          <input class="input" id="sbTempo" placeholder="141 BPM" style="flex:1;min-width:90px">
+                          <input class="input" id="sbMeter" placeholder="4/4" style="flex:1;min-width:70px">
+                          <input class="input" id="sbMood" placeholder="Mood（energetic…）" style="flex:1;min-width:100px">
+                        </div>
+                        <div class="rowBtns" style="gap:6px;flex-wrap:wrap;margin-bottom:6px">
+                          <input class="input" id="sbInst" placeholder="Instruments（guzheng, trance pads, driving bass…）" style="flex:1;min-width:160px">
+                          <input class="input" id="sbProd" placeholder="Production（bright mix…）" style="flex:1;min-width:120px">
+                        </div>
+                        <button type="button" class="btn btn-sm" id="sbApply">组合 → Style Prompt</button>
+                        <div class="hint">组合结果写入左侧 Style Prompt（可再手动微调）。若同时提供 ABC，谱内 <code>Q:</code> 才是 tempo 的 source of truth；与 BPM 不一致会在提交前提示。</div>
+                      </div>
                     </div>
                   </div>
                 </details>
@@ -392,11 +431,30 @@ placeholder="[Intro]
             </div>
             <form id="transForm" class="panel">
               <div class="panel-body">
-                <div class="field" style="margin-bottom:0">
+                <div class="field" style="margin-bottom:14px">
                   <label class="field-label" for="transPath">Audio Source</label>
                   <input class="input mono" type="text" id="transPath" required
                     placeholder="/Users/rin/Documents/Audacity4/duyiwuer.mp3">
                   <div class="hint">本机音频文件绝对路径（后端按路径读取）。转录完成后可在下方 Edit Score，或一键用该旋律生成翻唱。</div>
+                </div>
+                <div class="field" style="margin-bottom:0">
+                  <span class="field-label">Transcription Type</span>
+                  <div class="segmented" id="transTypeSeg">
+                    <button type="button" data-task="melody_full" aria-pressed="true">
+                      <span class="seg-title">Melody – Full lead</span>
+                      <span class="seg-desc">含乐器段的主旋律（chord-free）</span>
+                    </button>
+                    <button type="button" data-task="melody_vocal" aria-pressed="false">
+                      <span class="seg-title">Melody – Vocal only</span>
+                      <span class="seg-desc">仅人声旋律（chord-free）</span>
+                    </button>
+                    <button type="button" data-task="chord_full" aria-pressed="false">
+                      <span class="seg-title">Full score / Keep harmony</span>
+                      <span class="seg-desc">和弦 + 双旋律（cover 时用 Full）</span>
+                    </button>
+                  </div>
+                  <input type="hidden" id="transTask" value="melody_full">
+                  <div class="hint">Cover 映射：melody 转录 → cot="melody"；full harmony 转录 → cot="full"（保留和声重新配器）。先看转录 warnings 再判断生成问题。</div>
                 </div>
               </div>
               <div class="panel-body form-foot" style="border-top:1px solid var(--border-soft);padding-top:16px">
@@ -432,6 +490,26 @@ placeholder="[Intro]
   </div>
 </div>
 
+<!-- attempts modal -->
+<div class="overlay" id="attModal" onclick="if(event.target.id==='attModal')closeModal()">
+  <div class="panel" style="max-width:760px;width:calc(100% - 40px);box-shadow:var(--shadow-pop);max-height:82vh;overflow:auto">
+    <div class="panel-head">
+      <h3 class="panel-title" id="attTitle">Attempts</h3>
+      <span style="flex:1"></span>
+      <button class="btn-icon" onclick="closeModal()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+    </div>
+    <div class="panel-body" id="attBody"></div>
+  </div>
+</div>
+
+<style>
+  .att-table { width: 100%; border-collapse: collapse; font-size: var(--fs-ctrl); }
+  .att-table th { text-align: left; color: var(--fg-3); font-weight: 600; font-size: 11px;
+    text-transform: uppercase; letter-spacing: .06em; padding: 6px 8px; border-bottom: 1px solid var(--border-soft); }
+  .att-table td { padding: 8px; border-bottom: 1px solid var(--border-soft); vertical-align: middle; }
+  .att-table td .btn { margin-right: 4px; }
+</style>
+
 <div class="toast-host" id="toastHost"></div>
 
 <script>
@@ -442,6 +520,7 @@ placeholder="[Intro]
 const $  = s => document.querySelector(s);
 const $$ = s => Array.from(document.querySelectorAll(s));
 const esc = s => (s ?? '').toString().replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const TRANS_TASK_LABEL = { melody_full: 'Melody·Full lead', melody_vocal: 'Melody·Vocal only', chord_full: 'Full score·Keep harmony' };
 
 const PLAY_SVG  = '<svg><use href="#i-play"/></svg>';
 const PAUSE_SVG = '<svg><use href="#i-pause"/></svg>';
@@ -458,7 +537,8 @@ function toast(msg, kind) {
 }
 
 /* ---------- status helpers ---------- */
-const STATUS_LABEL = { pending:'Queued', running:'Generating', done:'Completed', cancelled:'Cancelled', failed:'Failed' };
+const STATUS_LABEL = { pending:'Queued', running:'Generating', done:'Completed',
+  done_truncated:'Needs Review (Truncated)', planned:'Planned', cancelled:'Cancelled', failed:'Failed' };
 function statusHTML(status) {
   return `<span class="status status-${esc(status)}"><span class="dot"></span>${STATUS_LABEL[status] || esc(status)}</span>`;
 }
@@ -481,21 +561,132 @@ function showView(name) {
   $('.scroll').scrollTop = 0;
 }
 
-/* ---------- generation mode segmented control ---------- */
+/* ---------- generation mode segmented control ----------
+   YuE2 semantics (backend enforces the same rules — this is UX, not security):
+   full:    ABC optional (score-conditioned regeneration / reharmonization)
+   melody:  ABC optional; if present it must be chord-free
+   off:     no ABC; no score.abc is produced
+   instrumental: a workflow, not a cot — requires ABC (supplied or planned),
+   then Vocal→Ins transfer server-side before generation. */
+let MODE_CHORDS = null;   // cached native inspect of the current ABC, or null
+
+const MODE_HINTS = {
+  full: 'AI 规划旋律与和弦。提供 ABC = 用该旋律+和声重新配器 / reharmonization（谱内和弦会被遵循）。',
+  melody: 'AI 只规划旋律（无和弦）。提供 ABC = 指定旋律 Cover；谱必须不含和弦。',
+  off: '直接文本→音频，不产生可编辑乐谱（正常行为，非错误）。',
+  instrumental: '纯音乐工作流：先出谱（或用你提供的谱），服务器把 Vocal 音符全部移到 Ins（Vocal 只留休止/和弦），再用转换后的谱生成。风格自动补 no vocals 等条件。',
+};
+
 function setMode(m) {
-  $('#cot').value = m;
+  $('#cot').value = (m === 'instrumental') ? 'full' : m;
   $$('#modeSeg button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.mode === m)));
-  $('#abcField').hidden = (m !== 'melody');
+  $('#modeHint').textContent = MODE_HINTS[m] || '';
+  const showAbc = (m === 'full' || m === 'melody' || m === 'instrumental');
+  $('#abcField').hidden = !showAbc;
+  $('#abcModeTag').textContent = m === 'melody' ? '— Melody 要求无和弦'
+    : m === 'instrumental' ? '— Instrumental 的转换源（必填）'
+    : '— Optional：留空让 AI 规划';
+  $('#abcHint').textContent = m === 'instrumental'
+    ? '提供旋律谱（可含和弦）：Vocal→Ins 转换在服务器按音符事件执行，保留原 Ins 不冲突旋律。'
+    : '留空 = AI 自己规划；粘贴/选择 = score-conditioned 生成。';
+  if (m === 'instrumental') abcDiag();  // require score, check immediately
 }
-$$('#modeSeg button').forEach(b => b.onclick = () => setMode(b.dataset.mode));
+$$('#modeSeg button').forEach(b => b.onclick = () => { setMode(b.dataset.mode); abcDiag(); });
+
+async function abcDiag() {
+  // Server-side native inspection of the current ABC (debounced).
+  const mode = $('#modeSeg button[aria-pressed="true"]').dataset.mode;
+  const abc = $('#abc').value.trim();
+  const diag = $('#abcDiag');
+  clearTimeout(abcDiag._t);
+  if (!abc) {
+    diag.style.display = mode === 'instrumental' ? 'block' : 'none';
+    diag.innerHTML = mode === 'instrumental' ? '⚠️ Instrumental 需要一份 ABC 谱（可从下方选择或粘贴）。' : '';
+    MODE_CHORDS = null;
+    return;
+  }
+  abcDiag._t = setTimeout(async () => {
+    try {
+      const r = await fetch('/api/abc/inspect', { method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ abc }) });
+      const d = await r.json();
+      diag.style.display = 'block';
+      if (!d.valid && !d.quick) {
+        diag.innerHTML = `<span style="color:var(--error)">✗ Native validation 失败：${esc(d.error || '')}</span>`;
+        MODE_CHORDS = { invalid: true };
+        return;
+      }
+      const q = d.quick || d;
+      if (!q.valid) {
+        diag.innerHTML = `<span style="color:var(--error)">✗ Native validation 失败：${esc(q.error || '')}</span>`;
+        MODE_CHORDS = { invalid: true };
+        return;
+      }
+      MODE_CHORDS = q;
+      let html = `✓ Native valid · ${q.bpm} BPM · ${q.meter} · ${q.key} · Vocal ${q.vocal_notes} 音 · Ins ${q.ins_notes} 音 · ${q.measures} 小节`;
+      if (q.has_chords && mode === 'melody') {
+        html += `<br><span style="color:var(--warning)">⚠️ 该乐谱包含和弦。Melody mode 要求 chord-free ABC。</span>`
+              + ` <button type="button" class="btn btn-sm" id="stripBtn">移除和弦后继续</button>`
+              + ` <span class="hint">（或切到 Full 保留和声）</span>`;
+      } else if (q.has_chords) {
+        html += ` · 含 ${q.chord_count} 个和弦标记`;
+      }
+      // Tempo mismatch: style BPM vs ABC Q: (ABC is the symbolic source of truth)
+      const styleBpm = ($('#style').value.match(/(\d{2,3})\s*BPM/i) || [])[1];
+      if (styleBpm && +styleBpm !== q.bpm) {
+        html += `<br><span style="color:var(--warning)">⚠️ Tempo mismatch：Style 写 ${styleBpm} BPM，谱内 Q: = ${q.bpm} BPM。ABC 是 tempo 的 source of truth；生成前请统一（修改 style 或谱）。</span>`;
+      }
+      diag.innerHTML = html;
+      const strip = $('#stripBtn');
+      if (strip) strip.onclick = async () => {
+        const r = await fetch('/api/abc/strip-chords', { method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ abc }) });
+        const d = await r.json();
+        if (d.ok) {
+          $('#abc').value = d.abc;
+          toast('已移除和弦（旋律/节奏/拍号原样保留）', 'ok');
+          abcDiag();
+        } else toast(d.detail || '移除失败', 'err');
+      };
+    } catch (e) { /* transient */ }
+  }, 300);
+}
+$('#abc').addEventListener('input', abcDiag);
+$('#style').addEventListener('input', abcDiag);
+
 $('#scoreFill').onclick = () => {
   const sel = $('#scorePick');
   const opts = JSON.parse(sel.dataset.options || '[]');
   if (!sel.value || !opts[+sel.value]) { toast('请先选择一个乐谱', 'err'); return; }
-  $('#abc').value = opts[+sel.value];
+  $('#abc').value = opts[+sel.value].abc;
   toast('已填入乐谱');
+  abcDiag();
 };
 setMode('full');
+
+/* ---------- style prompt builder ---------- */
+$('#styleBuilderBtn').onclick = () => {
+  const b = $('#styleBuilder');
+  b.style.display = b.style.display === 'none' ? 'block' : 'none';
+};
+$('#sbApply').onclick = () => {
+  const g = id => $(id).value.trim();
+  const parts = [
+    [g('#sbLang'), g('#sbVocal')].filter(Boolean).join(', '),
+    [g('#sbGenre'), g('#sbEra')].filter(Boolean).join(' ').trim(),
+  ].filter(Boolean).join(', ');
+  const tail = [g('#sbTempo'), g('#sbMeter')].filter(Boolean).join(', '),
+        inst = g('#sbInst'), mood = g('#sbMood'), prod = g('#sbProd');
+  let out = parts;
+  if (tail) out += ', ' + tail;
+  if (inst) out += ', ' + inst;
+  if (mood) out += ', ' + mood;
+  if (prod) out += ', ' + prod;
+  if (out) { $('#style').value = out; toast('已组合 Style Prompt，可手动微调', 'ok'); abcDiag(); }
+  else toast('请至少填一项', 'err');
+};
 
 /* ---------- data refresh ---------- */
 async function refresh() {
@@ -514,26 +705,29 @@ async function refresh() {
 }
 
 function renderScorePick(trans, songs) {
-  // Fill the "use existing score" picker: transcription scores first (canonical),
-  // then generated song scores.
+  // Typed score sources — the picker labels WHERE a score came from so a
+  // chord-bearing Full plan is never mistaken for a melody-only cover source.
   const sel = $('#scorePick');
   if (!sel) return;
   const options = [];
   for (const t of trans) {
-    if (t.status === 'done' && t.abc) options.push({ label: `🎼 ${t.name}${t.key ? ' (' + t.key + ')' : ''}`, abc: t.abc });
+    if (t.status === 'done' && t.abc) {
+      const type = (t.task === 'chord_full') ? 'Transcription full harmony'
+        : (t.task === 'melody_vocal') ? 'Transcription vocal melody' : 'Transcription melody';
+      options.push({ label: `🎼 ${t.name} (${type})`, abc: t.abc });
+    }
   }
   for (const s of songs) {
-    if (s.abc_generated) options.push({ label: `🎵 ${s.title} (生成谱)`, abc: s.abc_generated });
-    else if (s.abc && s.cot === 'melody') options.push({ label: `🎵 ${s.title}`, abc: s.abc });
+    if (s.abc_generated) options.push({ label: `🎵 ${s.title} (Generated plan)`, abc: s.abc_generated });
+    else if (s.abc) options.push({ label: `🎵 ${s.title} (Edited score)`, abc: s.abc });
   }
   const html = options.length
     ? '<option value="">— 选择已有乐谱 —</option>' + options.map((o, i) => `<option value="${i}">${esc(o.label)}</option>`).join('')
     : '<option value="">（暂无已完成的乐谱）</option>';
-  // Preserve selection across refreshes if possible
   const cur = sel.value;
   sel.innerHTML = html;
-  sel.dataset.options = JSON.stringify(options.map(o => o.abc));
-  if (cur && cur < options.length) sel.value = cur;
+  sel.dataset.options = JSON.stringify(options);
+  if (cur && +cur < options.length) sel.value = cur;
 }
 
 function renderGlobalState(songs, trans) {
@@ -576,19 +770,109 @@ function renderQueue(songs, trans) {
 }
 function songActions(s) {
   const out = [];
+  const editableABC = s.abc_generated || (s.abc && s.cot !== 'off');
   if (s.audio_path)
     out.push(`<button class="btn btn-sm" onclick="downloadAudio('${s.id}', ${JSON.stringify(s.title).replace(/"/g, '&quot;')})"><svg><use href="#i-dl"/></svg> Download</button>`);
   if (s.abc_generated)
     out.push(`<button class="btn btn-sm" onclick="location.href='/editor/${s.id}'"><svg><use href="#i-score"/></svg> Edit Score</button>`);
   if (s.status === 'running' || s.status === 'pending')
     out.push(`<button class="btn btn-sm btn-danger" onclick="stopSong('${s.id}')"><svg><use href="#i-stop"/></svg> Stop</button>`);
-  if (s.status === 'cancelled')
-    out.push(`<button class="btn btn-sm" onclick="rerunSong('${s.id}')"><svg><use href="#i-refresh"/></svg> Re-queue</button>`);
-  if (s.status === 'done' || s.status === 'failed' || s.status === 'cancelled')
-    out.push(`<button class="btn btn-sm" onclick="rerunSong('${s.id}')" title="用当前乐谱重新生成"><svg><use href="#i-refresh"/></svg> Regenerate</button>`);
+  const finished = ['done', 'done_truncated', 'failed', 'cancelled', 'planned'].includes(s.status);
+  if (finished) {
+    // Rerun = exact request again; Variant = same conditions, new seed.
+    out.push(`<button class="btn btn-sm" onclick="newAttempt('${s.id}', 'rerun')" title="完全相同的请求再跑一次"><svg><use href="#i-refresh"/></svg> Rerun</button>`);
+    out.push(`<button class="btn btn-sm" onclick="newAttempt('${s.id}', 'variant')" title="相同条件，新 seed"><svg><use href="#i-refresh"/></svg> Variant</button>`);
+    // Regenerate from score only when an editable ABC exists (off 模式没有).
+    if (editableABC)
+      out.push(`<button class="btn btn-sm" onclick="newAttempt('${s.id}', 'regenerate')" title="用当前/编辑后的 ABC 重新生成"><svg><use href="#i-refresh"/></svg> From Score</button>`);
+  }
+  out.push(`<button class="btn btn-sm" onclick="showAttempts('${s.id}')" ${s.active_attempt ? '' : 'disabled'}><svg><use href="#i-info"/></svg> Attempts</button>`);
   out.push('<span class="spacer"></span>');
   out.push(`<button class="btn-icon" title="Delete" onclick="delSong('${s.id}')"><svg><use href="#i-trash"/></svg></button>`);
   return out.join('');
+}
+
+async function newAttempt(sid, mode) {
+  const body = { mode };
+  if (mode === 'regenerate') {
+    // use the song's edited snapshot if present, else its generated plan
+    const s = await (await fetch('/api/songs/' + sid)).json();
+    body.abc = s.abc || s.abc_generated;
+  }
+  const r = await fetch(`/api/songs/${sid}/attempts`, { method: 'POST',
+    headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  const d = await r.json();
+  if (r.ok) { toast({ rerun: '已重新入队（相同请求）', variant: '已创建新 attempt（新 seed）',
+                      regenerate: '已用当前乐谱创建新 attempt' }[mode], 'ok'); refresh(); }
+  else toast(d.detail || '操作失败', 'err');
+}
+
+async function showAttempts(sid) {
+  const atts = await (await fetch(`/api/songs/${sid}/attempts`)).json();
+  const s = await (await fetch('/api/songs/' + sid)).json();
+  const rows = atts.map(a => {
+    const badge = a.status === 'done_truncated' ? '⚠️ Truncated'
+      : ({ planned: 'Planned', done: 'Completed', failed: 'Failed',
+          cancelled: 'Cancelled', pending: 'Queued', running: 'Generating' }[a.status] || a.status);
+    const active = s.active_attempt === a.id;
+    return `<tr>
+      <td>#${a.attempt_no}${a.kind === 'plan' ? ' (plan)' : ''}</td>
+      <td>${badge}</td>
+      <td>${a.seed}</td>
+      <td>${a.audio_seconds ? a.audio_seconds.toFixed(1) + 's' : '—'}</td>
+      <td>${a.created_at ? shortTime(a.created_at) : ''}</td>
+      <td>${a.status === 'planned' ? `<button class="btn btn-sm" onclick="renderPlan('${sid}', '${a.id}')">渲染音频</button>` : ''}
+          ${a.audio_path ? `<button class="btn btn-sm" onclick="playAttempt('${sid}', '${a.id}', this)">▶ 试听</button>` : ''}
+          ${!active && ['done', 'done_truncated'].includes(a.status) ? `<button class="btn btn-sm" onclick="activateAtt('${sid}', '${a.id}')">设为当前</button>` : ''}
+          ${active ? '<span class="hint">当前</span>' : ''}</td>
+    </tr>`;
+  }).join('');
+  const info = atts.filter(a => a.audio_path).map(a => {
+    const cfg = a.config_meta ? JSON.parse(a.config_meta) : {};
+    return `#${a.attempt_no}: ${a.model || 'YuE2-3B'} · cfg ${a.cfg_scale ?? cfg.cfg_scale ?? 'auto'} · ${a.runtime_version || ''}`
+      + (a.truncated_abc || a.truncated_semantic ? ' · ⚠️ 截断' : '');
+  }).join('<br>');
+  $('#attTitle').textContent = 'Attempts — ' + s.title;
+  $('#attBody').innerHTML = `
+    <table class="att-table"><thead><tr><th>#</th><th>状态</th><th>Seed</th><th>时长</th><th>创建</th><th>操作</th></tr></thead>
+    <tbody>${rows}</tbody></table>
+    ${info ? `<div class="hint" style="margin-top:10px">${info}</div>` : ''}
+    <div class="hint" style="margin-top:8px">每次生成都是独立 attempt，永不覆盖历史（音频/谱/token/latents 全保留）。⚠️ Truncated = 生成成功但 ABC/semantic 被截断，需要人工审核结尾。</div>`;
+  $('#attModal').classList.add('open');
+}
+
+function closeModal() {
+  document.querySelectorAll('#attBody audio').forEach(a => a.pause());
+  $('#attModal').classList.remove('open');
+}
+
+async function renderPlan(sid, aid) {
+  const r = await fetch(`/api/songs/${sid}/attempts/${aid}/render`, { method: 'POST',
+    headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}) });
+  const d = await r.json();
+  if (r.ok) { toast('已从原计划续跑渲染（未重复规划）', 'ok'); closeModal(); refresh(); }
+  else toast(d.detail || '渲染失败', 'err');
+}
+
+function playAttempt(sid, aid, btn) {
+  // Stop others, then play this attempt inline via a transient element.
+  document.querySelectorAll('.modal audio').forEach(a => a.pause());
+  let a = btn._audio;
+  if (!a) {
+    a = document.createElement('audio');
+    a.src = `/api/songs/${sid}/attempts/${aid}/audio`;
+    a.onended = () => { btn.lastChild.textContent = ' ▶ 试听'; };
+    btn._audio = a;
+    btn.parentElement.appendChild(a);
+  }
+  if (a.paused) { a.play(); btn.lastChild.textContent = ' ⏸ 停止'; }
+  else { a.pause(); btn.lastChild.textContent = ' ▶ 试听'; }
+}
+
+async function activateAtt(sid, aid) {
+  const r = await fetch(`/api/songs/${sid}/attempts/${aid}/activate`, { method: 'POST' });
+  if (r.ok) { toast('已切换当前版本', 'ok'); closeModal(); refresh(); }
+  else toast((await r.json()).detail || '失败', 'err');
 }
 
 function downloadAudio(id, title) {
@@ -639,11 +923,15 @@ function renderTrans(trans) {
       <div class="song-head">
         <div class="song-id">
           <div class="song-title" ondblclick="renameTitle(this, 'trans', '${esc(t.id)}')" title="Double-click to rename">${esc(t.name)}</div>
-          <div class="song-meta">${esc(t.source)}${t.key ? ' · Key ' + esc(t.key) : ''}${t.duration ? ' · ' + t.duration.toFixed(1) + 's' : ''} · Created ${shortTime(t.created_at)}${t.updated_at ? ' · Modified ' + shortTime(t.updated_at) : ''}</div>
+          <div class="song-meta">${esc(t.source)} · ${TRANS_TASK_LABEL[t.task] || t.task || 'melody_full'}${t.key ? ' · Key ' + esc(t.key) : ''}${t.duration ? ' · ' + t.duration.toFixed(1) + 's' : ''} · Created ${shortTime(t.created_at)}${t.updated_at ? ' · Modified ' + shortTime(t.updated_at) : ''}</div>
         </div>
         ${statusHTML(t.status)}
       </div>
       ${t.status === 'failed' && t.error ? `<div class="song-err">${esc(t.error)}</div>` : ''}
+      ${t.warnings ? (() => {
+        let w = []; try { w = JSON.parse(t.warnings); } catch (e) {}
+        return w.length ? `<div class="song-err" style="color:var(--warning)">SheetSage2 warnings (${w.length}):<br>${w.map(x => esc(typeof x === 'string' ? x : JSON.stringify(x))).join('<br>')}</div>` : '';
+      })() : ''}
       ${t.abc ? `
         <details class="abcbox" ${t.status === 'done' ? 'open' : ''}>
           <summary><span class="chev"><svg class="icon" style="width:12px;height:12px"><use href="#i-chev"/></svg></span> Melody score (ABC)</summary>
@@ -789,9 +1077,28 @@ function useTrans(tid) {
 $('#genForm').onsubmit = async e => {
   e.preventDefault();
   const btn = $('#genBtn'), prog = $('#genProgress');
+  const modeBtn = $('#modeSeg button[aria-pressed="true"]');
+  const mode = modeBtn ? modeBtn.dataset.mode : 'full';
   const cot = $('#cot').value;
-  const abcVal = (cot === 'melody') ? ($('#abc').value.trim() || null) : null;
-  if (cot === 'melody' && !abcVal) { toast('Melody 模式需要 ABC 乐谱', 'err'); return; }
+  const abcVal = $('#abc').value.trim() || null;
+  const planFirst = $('#planFirst').checked;
+  const cfgRaw = $('#cfgScale').value;
+  const cfg = cfgRaw === '' ? null : +cfgRaw;
+
+  // Client-side gates mirror the backend (which re-validates natively).
+  if (mode === 'off' && abcVal) { toast('Off 模式不接受 ABC 乐谱', 'err'); return; }
+  if (mode === 'instrumental' && !abcVal) { toast('Instrumental 需要 ABC 谱作为转换源（可先用 Plan First 出谱）', 'err'); return; }
+  if (mode === 'melody' && abcVal && MODE_CHORDS && MODE_CHORDS.has_chords) {
+    toast('该乐谱包含和弦：点击诊断里的「移除和弦后继续」或切到 Full', 'err'); return;
+  }
+  if (mode === 'instrumental' && !planFirst && abcVal) {
+    // direct instrumental from supplied ABC — confirm the transfer is destructive to vocals
+    if (!confirm('Instrumental：服务器将把谱中全部 Vocal 音符移到 Ins（Vocal 只留休止/和弦），原谱与转换报告保留在 attempt 目录。继续？')) return;
+  }
+  // Wait for a pending native inspection so we never submit stale validation
+  if (abcVal && MODE_CHORDS === null) await new Promise(r => setTimeout(r, 450));
+  if (abcVal && MODE_CHORDS && MODE_CHORDS.invalid) { toast('ABC 未通过 native 校验，无法提交', 'err'); return; }
+
   const baseTitle = $('#title').value.trim() || 'Untitled';
   const n = Math.min(20, Math.max(1, Math.floor(+$('#genCount').value || 1)));
   btn.disabled = true; prog.classList.add('on');
@@ -804,13 +1111,20 @@ $('#genForm').onsubmit = async e => {
       const body = {
         title, style: $('#style').value, lyrics: $('#lyrics').value,
         cot, abc: abcVal, seed,
+        cfg_scale: cfg,
+        instrumental: (mode === 'instrumental'),
+        plan_only: planFirst,
+        score_source: abcVal ? 'Supplied score' : null,
       };
       const r = await fetch('/api/songs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
       if (r.ok) ok++; else { toast((await r.json()).detail || '提交失败', 'err'); break; }
     }
     if (ok) {
       $('#abc').value = '';
-      toast(ok > 1 ? `已加入 ${ok} 个生成任务（串行队列）` : '已加入生成队列', 'ok');
+      MODE_CHORDS = null;
+      toast(ok > 1
+        ? `已加入 ${ok} 个生成任务（串行队列${planFirst ? '，仅出谱' : ''}）`
+        : (planFirst ? '已提交出谱任务（完成后在歌曲里编辑/渲染）' : '已加入生成队列'), 'ok');
       showView('songs');
       refresh();
     }
@@ -819,12 +1133,19 @@ $('#genForm').onsubmit = async e => {
   }
 };
 
+$$('#transTypeSeg button').forEach(b => b.onclick = () => {
+  $$('#transTypeSeg button').forEach(x => x.setAttribute('aria-pressed', String(x === b)));
+  $('#transTask').value = b.dataset.task;
+});
+
 $('#transForm').onsubmit = async e => {
   e.preventDefault();
   const btn = $('#transBtn'), prog = $('#transProgress');
   btn.disabled = true; prog.classList.add('on');
   try {
-    const r = await fetch('/api/transcriptions', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ path: $('#transPath').value }) });
+    const r = await fetch('/api/transcriptions', { method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ path: $('#transPath').value, task: $('#transTask').value }) });
     if (!r.ok) { toast((await r.json()).detail || '提交失败', 'err'); return; }
     toast('转录任务已入队', 'ok');
     refresh();
