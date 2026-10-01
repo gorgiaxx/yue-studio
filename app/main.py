@@ -342,7 +342,9 @@ class AbcText(BaseModel):
 
 @app.post("/api/abc/inspect")
 def abc_inspect(body: AbcText):
-    """Full native inspection: valid?, chords, tempo, meter, voices, duration."""
+    """Full native inspection: valid?, chords, tempo, meter, voices, duration.
+    Errors carry {line_no, line_text, voice, bar_no} so the editor can highlight
+    the exact source position."""
     try:
         score = abc_native.parse_abc(body.abc)
         rep = abc_native.report(score)
@@ -351,7 +353,7 @@ def abc_inspect(body: AbcText):
         rep.pop("voices", None)
         return rep
     except abc_native.AbcError as exc:
-        return {"valid": False, "error": str(exc)}
+        return {"valid": False, "error": str(exc), "location": exc.location}
 
 
 @app.post("/api/abc/strip-chords")

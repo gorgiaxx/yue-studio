@@ -41,12 +41,22 @@ SECTIONS = {'intro', 'verse', 'pre-chorus', 'chorus', 'bridge', 'interlude', 'ou
 
 
 class AbcError(ValueError):
-    """Unsupported notation or a failed structural invariant."""
+    """Unsupported notation or a failed structural invariant.
+
+    `location` (when available): {line_no (1-based), line_text} of the music line
+    being parsed, so editors can highlight exactly where the score broke."""
+
+    def __init__(self, message, location=None):
+        super().__init__(message)
+        self.location = location
+
+
+_LOC = {}   # parse-time context: {line_no, line_text} of the music line being parsed
 
 
 def fail(condition: bool, message: str) -> None:
     if condition:
-        raise AbcError(message)
+        raise AbcError(message, dict(_LOC) if _LOC else None)
 
 
 def key_accidentals(key: str) -> dict[str, int]:
@@ -95,6 +105,10 @@ class Score:
 
 
 def parse_bar(body: str, voice: Voice, unit: Fraction, context: str) -> None:
+    # Track the absolute bar number for error locations.
+    m = re.search(r"bar (\d+)$", context)
+    if m and _LOC:
+        _LOC["bar_no"] = int(m.group(1))
     n, d = voice.meter
     length = Fraction(4 * n, d)
     start = voice.time
@@ -212,6 +226,10 @@ def parse(text: str) -> Score:
             line = lines[cursor]
             fail(not line.endswith("|"), f"{context}: music line must end with a plain barline")
             music_lines[cursor] = name
+            # Location context for every bar parsed from this line: 1-based line
+            # number plus the raw text, so errors can be highlighted in the editor.
+            _LOC.clear()
+            _LOC.update(line_no=cursor + 1, line_text=line, voice=name)
             cursor += 1
             bars = []
             for bar in line[:-1].split("|"):
@@ -226,6 +244,7 @@ def parse(text: str) -> Score:
             counts.append(len(bars))
             for bar in bars:
                 parse_bar(bar, voice, unit, f"{context}, bar {len(voice.bars) + 1}")
+            _LOC.clear()
         fail(counts[0] != counts[1], f"group {group}: voices have different measure counts")
     for name, voice in voices.items():
         fail(voice.pending is not None, f"{name}: unresolved tie at end of score")
@@ -638,4 +657,4 @@ def quick_inspect(text: str) -> dict:
                 "measures": len(vocal.bars),
                 "nominal_seconds": float(vocal.time * 60 / score.bpm)}
     except AbcError as exc:
-        return {"valid": False, "error": str(exc)}
+        return {"valid": False, "error": str(exc), "location": exc.location}

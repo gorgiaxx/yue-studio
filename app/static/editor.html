@@ -735,17 +735,23 @@ function deleteNote(outerSpan) {
 function updateCodeHl() {
   const ta = $('#abc'), hl = $('#codeHl');
   if (!ta || !hl) return;
+  // While a native-validation error is being shown, keep its red line band;
+  // the error mark is cleared when validation passes again.
+  if (hl.dataset.err === '1' && window.__errLoc) return;
   const s = ta.selectionStart, e = ta.selectionEnd;
   hl.innerHTML = '';
   if (s === e) { hl.scrollTop = ta.scrollTop; return; }   // caret only: no band
   const before = ta.value.slice(0, s);
   const token = ta.value.slice(s, e);
   const after = ta.value.slice(e);
-  const esc = t => t.replace(/&/g, '&amp;').replace(/</g, '&lt;');
-  hl.innerHTML = esc(before) + '<mark>' + esc(token) + '</mark>' + esc(after);
+  const esc2 = t => t.replace(/&/g, '&amp;').replace(/</g, '&lt;');
+  hl.innerHTML = esc2(before) + '<mark>' + esc2(token) + '</mark>' + esc2(after);
   hl.scrollTop = ta.scrollTop;
   hl.scrollLeft = ta.scrollLeft;
 }
+
+// global escape helper for the validation UI
+const esc = t => (t ?? '').toString().replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
 function selectInCode(span) {
   const ta = $('#abc');
@@ -1124,14 +1130,64 @@ function updateValStatus(inspect) {
   if (NATIVE_OK) {
     el.textContent = 'YuE2 Native: OK';
     el.className = 'val ok';
+    el.title = '';
+    clearNativeErrMark();
     $('#btnRegen').disabled = ($('#btnRegen').dataset.cot === 'off');
   } else {
     const err = (inspect && ((inspect.quick && inspect.quick.error) || inspect.error)) || 'invalid';
-    el.textContent = 'YuE2 Native: ' + err;
-    el.title = err;
+    const loc = inspect && ((inspect.quick && inspect.quick.location) || inspect.location);
+    const where = loc && loc.line_no ? `第 ${loc.line_no} 行${loc.bar_no ? ' · 第 ' + loc.bar_no + ' 小节' : ''}${loc.voice ? ' · ' + loc.voice : ''}` : '';
+    el.innerHTML = 'YuE2 Native: ' + esc(err) + (where ? `<br>📍 ${esc(where)}（点击跳转）` : '');
+    el.title = err + (where ? '\n' + where : '');
     el.className = 'val err';
+    el.onclick = () => jumpToNativeError(loc);
+    markNativeErrLine(loc);
     $('#btnRegen').disabled = true;   // gate: never generate from an invalid score
   }
+}
+
+function jumpToNativeError(loc) {
+  if (!loc || !loc.line_no) return;
+  const ta = $('#abc');
+  const lines = ta.value.split('\n');
+  const lineStart = lines.slice(0, loc.line_no - 1).reduce((a, l) => a + l.length + 1, 0);
+  const lineEnd = lineStart + (lines[loc.line_no - 1] || '').length;
+  ta.focus({ preventScroll: true });
+  ta.setSelectionRange(lineStart, lineEnd);
+  updateCodeHl();
+  // scroll the offending line into view
+  const cs = getComputedStyle(ta);
+  const lineHeight = parseFloat(cs.lineHeight) || 19.2;
+  ta.scrollTop = Math.max(0, (loc.line_no - 1) * lineHeight - ta.clientHeight / 2 + lineHeight);
+  markNativeErrLine(loc);
+}
+
+function markNativeErrLine(loc) {
+  // persistent red band on the offending line via the codeHl overlay
+  const hl = $('#codeHl'), ta = $('#abc');
+  if (!hl || !loc || !loc.line_no) { clearNativeErrMark(); return; }
+  window.__errLoc = loc;
+  hl.dataset.err = '1';
+  const lines = ta.value.split('\n');
+  let html = '';
+  for (let i = 0; i < lines.length; i++) {
+    const escd = esc(lines[i]).replace(/ /g, '&nbsp;');
+    html += (i === loc.line_no - 1)
+      ? `<span style="background:rgba(255,90,90,.28);display:inline-block;width:100%">${escd || '&nbsp;'}</span>`
+      : escd;
+    html += '\n';
+  }
+  hl.innerHTML = html;
+  hl.scrollTop = ta.scrollTop;
+}
+
+function clearNativeErrMark() {
+  const hl = $('#codeHl');
+  if (!hl) return;
+  const wasError = hl.dataset.err === '1';
+  hl.dataset.err = '';
+  window.__errLoc = null;
+  if (wasError) updateCodeHl();
 }
 
 function render() {
