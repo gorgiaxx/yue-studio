@@ -1003,8 +1003,12 @@ function wirePlayers(container) {
 /* ---------- actions ---------- */
 async function stopSong(id) {
   if (!confirm('停止这个生成任务？')) return;
-  const r = await fetch('/api/songs/' + id + '/cancel', { method: 'POST' });
-  if (!r.ok) toast((await r.json()).detail || '停止失败', 'err');
+  try {
+    const r = await fetch('/api/songs/' + id + '/cancel', { method: 'POST' });
+    if (!r.ok) { toast((await r.json()).detail || '停止失败', 'err'); return; }
+    const d = await r.json();
+    toast('已停止' + (d.status && d.status.startsWith('reconciled') ? '（状态已修正）' : ''), 'ok');
+  } catch (e) { toast('停止失败：' + e, 'err'); }
   refresh();
 }
 async function stopTrans(id) {
@@ -1053,7 +1057,11 @@ function renameTitle(el, kind, id) {
 }
 async function delSong(id) {
   if (!confirm('删除这首歌？此操作不可撤销。')) return;
-  await fetch('/api/songs/' + id, { method: 'DELETE' });
+  try {
+    const r = await fetch('/api/songs/' + id, { method: 'DELETE' });
+    if (!r.ok) { toast((await r.json()).detail || '删除失败', 'err'); return; }
+    toast('已删除', 'ok');
+  } catch (e) { toast('删除失败：' + e, 'err'); }
   refresh();
 }
 async function delTrans(id) {

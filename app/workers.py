@@ -55,7 +55,44 @@ def _release_pipe():
     with _pipe_lock:
         _pipe = None
 
-_CANCEL = threading.Event()   # set → the currently running generation aborts
+# Cooperative cancel is TARGETED: a flag per attempt-id. The old single global
+# Event killed whatever generation happened to be running — cancelling song A
+# could abort song B's in-flight attempt. The worker matches the flag against
+# the attempt it is about to run / is running.
+_CANCEL = threading.Event()
+_CANCEL_FOR: str | None = None     # attempt id the flag currently targets
+_CANCEL_LOCK = threading.Lock()
+
+
+def request_cancel(sid: str) -> bool:
+    """Cancel every live attempt of this song (queued → cancelled rows; the
+    in-flight one via the cooperative flag). Songs stuck with no live attempt
+    (e.g. a past crash left status=running) still get their rows reconciled
+    so the UI always reacts."""
+    live = [a for a in db.list_attempts(sid) if a["status"] == "running"]
+    for a in db.list_attempts(sid):
+        if a["status"] == "pending":
+            db.update_attempt(a["id"], status="cancelled", finished_at=db.now())
+    if live:
+        global _CANCEL_FOR
+        with _CANCEL_LOCK:
+            _CANCEL_FOR = live[0]["id"]
+            _CANCEL.set()
+    return True
+
+
+def cancel_requested(aid: str) -> bool:
+    """Worker-side: is MY attempt the cancellation target?"""
+    with _CANCEL_LOCK:
+        return _CANCEL.is_set() and _CANCEL_FOR == aid
+
+
+def clear_cancel(aid: str) -> None:
+    global _CANCEL_FOR
+    with _CANCEL_LOCK:
+        if _CANCEL_FOR == aid:
+            _CANCEL.clear()
+            _CANCEL_FOR = None
 
 
 def enqueue_generation(aid: str) -> None:
@@ -66,21 +103,12 @@ def enqueue_transcription(tid: str) -> None:
     _trans_queue.put(tid)
 
 
-def request_cancel(sid: str) -> bool:
-    """Mark a running song as cancelled. Returns True if the song is cancellable."""
-    _CANCEL.set()
-    return True
-
-
 def request_trans_cancel(tid: str) -> bool:
     """Kill the SheetSage2 subprocess for a running transcription."""
     proc = _trans_proc.get("proc")
     if proc is not None and proc.poll() is None:
         proc.kill()
     return True
-
-
-_trans_proc: dict = {}
 
 
 # ---- attempt execution ----
@@ -168,7 +196,7 @@ def _run_generation(aid: str) -> None:
         return
     if att["status"] == "cancelled":
         return                      # cancelled while queued
-    _CANCEL.clear()
+    clear_cancel(aid)               # only clears if the stale target was me
     song_id = att["song_id"]
     out = db.attempt_output_dir(song_id, aid, OUTPUTS)
     try:
@@ -217,9 +245,9 @@ def _run_generation(aid: str) -> None:
             if plan_dir and Path(plan_dir).is_dir() and att["kind"] == "render":
                 from yue2 import SymbolicPlan
                 plan = SymbolicPlan.load(plan_dir)
-                semantic = pipe.generate_semantic(plan, cancelled=_CANCEL.is_set)
-                latents = pipe.synthesize(semantic, cancelled=_CANCEL.is_set)
-                if _CANCEL.is_set():
+                semantic = pipe.generate_semantic(plan, cancelled=lambda: cancel_requested(aid))
+                latents = pipe.synthesize(semantic, cancelled=lambda: cancel_requested(aid))
+                if cancel_requested(aid):
                     raise InterruptedError
                 audio = pipe.decode(latents)
                 from yue2.pipeline import SongResult
@@ -228,12 +256,12 @@ def _run_generation(aid: str) -> None:
                                     pipe.weights, {}, "resumed")
                 receipt = result.save_artifacts(out)
             else:
-                result = pipe(**call_kwargs, cancelled=_CANCEL.is_set)
+                result = pipe(**call_kwargs, cancelled=lambda: cancel_requested(aid))
                 # save the untouched plan for plan-first workflows
                 result.semantic.plan.save(out)
                 receipt = result.save_artifacts(out)
 
-        if _CANCEL.is_set():
+        if cancel_requested(aid):
             _finish_attempt(aid, "cancelled")
             print(f"[gen] {aid} cancelled")
             return
@@ -260,14 +288,14 @@ def _run_generation(aid: str) -> None:
         _finish_attempt(aid, "cancelled")
         print(f"[gen] {aid} cancelled")
     except Exception as exc:  # noqa: BLE001 - worker boundary
-        if _CANCEL.is_set():
+        if cancel_requested(aid):
             _finish_attempt(aid, "cancelled")
         else:
             _finish_attempt(aid, "failed", error=exc)
             traceback.print_exc()
     finally:
         _release_pipe()
-        _CANCEL.clear()
+        clear_cancel(aid)
 
 
 def _run_plan_only(aid: str) -> None:
@@ -291,7 +319,7 @@ def _run_plan_only(aid: str) -> None:
         request = SongRequest(**kwargs)
         with _pipe_lock:
             pipe = _get_pipe()
-            plan = pipe.plan(request=request, cancelled=_CANCEL.is_set)
+            plan = pipe.plan(request=request, cancelled=lambda: cancel_requested(aid))
             plan.save(out)
             provenance = {"composer": "YuE2", "weights": pipe.weights,
                           "config": pipe.effective_config(request),
@@ -299,7 +327,7 @@ def _run_plan_only(aid: str) -> None:
         (out / "provenance.json").write_text(
             json.dumps(provenance, ensure_ascii=False, indent=2, default=str),
             encoding="utf-8")
-        if _CANCEL.is_set():
+        if cancel_requested(aid):
             _finish_attempt(aid, "cancelled")
             return
         abc_generated = None
@@ -313,14 +341,14 @@ def _run_plan_only(aid: str) -> None:
     except InterruptedError:
         _finish_attempt(aid, "cancelled")
     except Exception as exc:  # noqa: BLE001
-        if _CANCEL.is_set():
+        if cancel_requested(aid):
             _finish_attempt(aid, "cancelled")
         else:
             _finish_attempt(aid, "failed", error=exc)
             traceback.print_exc()
     finally:
         _release_pipe()
-        _CANCEL.clear()
+        clear_cancel(aid)
 
 
 # ---- SheetSage2 transcription ----

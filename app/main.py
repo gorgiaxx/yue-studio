@@ -303,17 +303,34 @@ def song_audio(sid: str, download: bool = False):
 
 @app.post("/api/songs/{sid}/cancel")
 def cancel_song(sid: str):
+    """Stop the song. Handles every state:
+    - queued: mark its pending attempts cancelled immediately
+    - running: cooperative cancel of the live attempt
+    - STUCK running (no live attempt — e.g. a crash left the row behind):
+      reconcile to the attempt's real state so the UI reacts instead of
+      silently doing nothing."""
     song = db.get_song(sid)
     if not song:
         raise HTTPException(404, "song not found")
-    if song["status"] == "pending":
-        for a in db.list_attempts(sid):
-            if a["status"] in ("pending", "running"):
-                db.update_attempt(a["id"], status="cancelled", finished_at=db.now())
+    attempts = db.list_attempts(sid)
+    live = [a for a in attempts if a["status"] in ("pending", "running")]
+    if song["status"] in ("running", "pending") and not live:
+        # stuck row: reconcile to the active attempt's persisted state
+        active = next((a for a in attempts if a["id"] == song["active_attempt"]), None)
+        real = active["status"] if active else "failed"
+        db.update_song(sid, status=real, error=active.get("error") if active else "reconciled",
+                       finished_at=db.now())
+        return {"ok": True, "status": f"reconciled → {real}"}
+    if not live:
+        # already finished — nothing to stop
+        return {"ok": True, "status": f"nothing to cancel (status={song['status']})"}
+    workers.request_cancel(sid)   # cancels queued rows + targets the running one
+    if song["status"] == "pending" or all(a["status"] == "pending" for a in live):
+        # queued only: no worker will flip these — set them now
+        for a in live:
+            db.update_attempt(a["id"], status="cancelled", finished_at=db.now())
         db.update_song(sid, status="cancelled", finished_at=db.now())
         return {"ok": True, "status": "cancelled (was queued)"}
-    if not workers.request_cancel(sid):
-        raise HTTPException(409, f"song is not running (status={song['status']})")
     return {"ok": True, "status": "cancelled"}
 
 

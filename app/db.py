@@ -210,6 +210,17 @@ def delete_song(sid: str, outputs_dir: Path) -> None:
     song = get_song(sid)
     if not song:
         return
+    # Remove every attempt's output dir (v2 nested + v1 flat layouts).
+    for d in {outputs_dir / sid, outputs_dir / f"song-{sid}"}:
+        if d.is_dir():
+            import shutil
+            shutil.rmtree(d, ignore_errors=True)
+    with get_db() as db:
+        db.execute("DELETE FROM generation_attempts WHERE song_id=?", (sid,))
+        db.execute("DELETE FROM songs WHERE id=?", (sid,))
+        db.commit()
+
+
 def create_attempt(song_id, kind, title, style, lyrics, cot, seed,
                    cfg_scale=None, abc_input=None, parent_attempt=None,
                    instrumental=False, score_source=None) -> dict:
