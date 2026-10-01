@@ -82,17 +82,26 @@
                background: rgba(255,90,90,.08); border: 1px solid rgba(255,90,90,.35); border-radius: 8px;
                color: var(--fg-2); white-space: pre-wrap; overflow-wrap: anywhere; max-height: 120px; overflow: auto; }
 
-  /* ABC code editor */
-  #codeStack { position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; }
+  /* ABC code editor with line-number gutter */
+  #codeStack { position: relative; flex: 1; min-height: 0; display: flex; flex-direction: row; }
+  #lineNos {
+    flex: none; width: 40px; overflow: hidden; text-align: right;
+    padding: 14px 8px 14px 0; font: 12.5px/1.7 var(--font-mono);
+    color: var(--fg-3); background: var(--surface-2); border-right: 1px solid var(--border-soft);
+    user-select: none; cursor: default; white-space: pre;
+  }
+  #lineNos .ln-err { color: var(--error); font-weight: 700; }
+  #codeScrollWrap { position: relative; flex: 1; min-height: 0; }
   #codeHl {
     position: absolute; inset: 0; pointer-events: none; overflow: hidden; padding: 14px 16px;
     font: 12.5px/1.7 var(--font-mono); white-space: pre; color: transparent;
   }
   #codeHl mark { background: var(--accent); border-radius: 2px; color: transparent; }
   #abc {
-    flex: 1; width: 100%; border: 0; resize: none; background: transparent; color: var(--fg);
+    position: absolute; inset: 0; width: 100%; height: 100%; border: 0; resize: none;
+    background: transparent; color: var(--fg);
     padding: 14px 16px; font: 12.5px/1.7 var(--font-mono); outline: none; white-space: pre; overflow: auto;
-    min-height: 0; position: relative; caret-color: var(--cursor); tab-size: 2;
+    caret-color: var(--cursor); tab-size: 2;
   }
   #abc::selection { background: var(--accent); color: #fff; }
 
@@ -259,8 +268,11 @@
       <div id="valDetail"></div>
 
       <div id="codeStack">
-        <div id="codeHl"></div>
-        <textarea id="abc" spellcheck="false"></textarea>
+        <div id="lineNos"></div>
+        <div id="codeScrollWrap">
+          <div id="codeHl"></div>
+          <textarea id="abc" spellcheck="false"></textarea>
+        </div>
       </div>
     </div>
     <div id="preview">
@@ -735,6 +747,28 @@ function deleteNote(outerSpan) {
   } else replaceSpan(span, '');
 }
 
+// ---------- line-number gutter ----------
+// Mirrors the textarea: same line height/font, synced to its vertical scroll,
+// with the native-validation error line highlighted in red.
+function updateLineNos() {
+  const ta = $('#abc'), ln = $('#lineNos');
+  if (!ta || !ln) return;
+  const n = ta.value.split('\n').length;
+  const err = window.__errLoc && window.__errLoc.line_no;
+  let html = '';
+  for (let i = 1; i <= n; i++) {
+    html += (i === err) ? `<span class="ln-err">${i}</span>` : i;
+    html += '\n';
+  }
+  ln.innerHTML = html;
+  ln.scrollTop = ta.scrollTop;   // gutter is overflow:hidden; offset via top padding below
+  ln.style.paddingTop = (14 - ta.scrollTop % 21.25) + 'px';  // 21.25 = line height 12.5*1.7
+}
+$('#abc') && $('#abc').addEventListener('scroll', () => {
+  const ln = $('#lineNos');
+  if (ln) ln.style.paddingTop = (14 - $('#abc').scrollTop % 21.25) + 'px';
+});
+
 // ---------- selection: clicking a note highlights its source ----------
 // A blurred textarea does not paint its native selection, so the current focus is
 // ALSO rendered as a persistent purple band in the #codeHl overlay under the text.
@@ -756,7 +790,8 @@ function updateCodeHl() {
   hl.scrollLeft = ta.scrollLeft;
 }
 
-// global escape helper for the validation UI
+// global escape helper for the validation UI (a previous edit accidentally
+// removed this; updateValStatus depends on it)
 const esc = t => (t ?? '').toString().replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
 function selectInCode(span) {
@@ -840,6 +875,7 @@ function pushUndo() {
 
 function applyText(text) {
   $('#abc').value = text;
+  updateLineNos();
   render();
 }
 
@@ -1072,10 +1108,12 @@ function pushUndoSilent() {
   preTyping = $('#abc').value;
 }
 
-$('#abc').addEventListener('input', () => { scheduleRender(); updateCodeHl(); setSaveState('dirty'); });
+$('#abc').addEventListener('input', () => { scheduleRender(); updateCodeHl(); updateLineNos(); setSaveState('dirty'); });
 $('#abc').addEventListener('scroll', () => {
   const hl = $('#codeHl');
   if (hl) { hl.scrollTop = $('#abc').scrollTop; hl.scrollLeft = $('#abc').scrollLeft; }
+  const ln = $('#lineNos');
+  if (ln) ln.style.paddingTop = (14 - $('#abc').scrollTop % 21.25) + 'px';
 });
 
 // ---------- code → score cursor sync ----------
@@ -1198,6 +1236,7 @@ function markNativeErrLine(loc) {
   }
   hl.innerHTML = html;
   hl.scrollTop = ta.scrollTop;
+  updateLineNos();
 }
 
 function clearNativeErrMark() {
@@ -1206,7 +1245,7 @@ function clearNativeErrMark() {
   const wasError = hl.dataset.err === '1';
   hl.dataset.err = '';
   window.__errLoc = null;
-  if (wasError) updateCodeHl();
+  if (wasError) { updateCodeHl(); updateLineNos(); }
 }
 
 function render() {
@@ -1247,6 +1286,7 @@ function render() {
   statusEl.textContent = 'ABCJS Render: OK' + (warns ? `（${warns} 处警告）` : '');
   statusEl.className = 'ok';
   $('#playerBar').style.display = 'flex';
+  updateLineNos();        // programmatic edits bypass `input` — keep the gutter fresh
   nativeValidate();      // re-check YuE2-native validity after every render
 }
 
