@@ -94,9 +94,10 @@ def _runtime_version() -> str:
 
 
 def _finish_attempt(aid, status, error=None, extra=None):
+    error_text = f"{error}" if error is not None else None
     fields = dict(status=status, finished_at=db.now())
-    if error is not None:
-        fields["error"] = f"{error}"
+    if error_text is not None:
+        fields["error"] = error_text
     if extra:
         fields.update(extra)
     db.update_attempt(aid, **fields)
@@ -109,16 +110,16 @@ def _finish_attempt(aid, status, error=None, extra=None):
     # through the queue strip. A newly completed non-active attempt becomes
     # active automatically (it superseded the previous view).
     if song["active_attempt"] == aid:
-        db.update_song(song["id"], status=status, error=error)
+        db.update_song(song["id"], status=status, error=error_text)
     elif terminal and status in ("done", "done_truncated", "planned"):
         # a later attempt finished while an older one is still viewed:
         # surface the finished one (queue order guarantees recency)
         db.activate_attempt(song["id"], aid,
                             audio_path=latest.get("audio_path"),
                             abc_generated=latest.get("abc_generated"))
-        db.update_song(song["id"], status=status, error=error)
+        db.update_song(song["id"], status=status, error=error_text)
     elif song["status"] in ("pending", "running") and status in ("failed", "cancelled"):
-        db.update_song(song["id"], status=status, error=error)
+        db.update_song(song["id"], status=status, error=error_text)
 
 
 def _attempt(aid):
@@ -204,6 +205,10 @@ def _run_generation(aid: str) -> None:
         if att["cfg_scale"] is not None:
             kwargs["cfg_scale"] = float(att["cfg_scale"])
         request = SongRequest(**kwargs)
+        # pipe() takes style/lyrics positionally — `request=` is only a pipe.plan
+        # parameter, NOT a __call__ parameter (it would land in **kwargs as None
+        # style/lyrics). Unpack the request for the one-shot call.
+        call_kwargs = request.to_dict()
 
         with _pipe_lock:
             pipe = _get_pipe()
@@ -223,7 +228,7 @@ def _run_generation(aid: str) -> None:
                                     pipe.weights, {}, "resumed")
                 receipt = result.save_artifacts(out)
             else:
-                result = pipe(request=request, cancelled=_CANCEL.is_set)
+                result = pipe(**call_kwargs, cancelled=_CANCEL.is_set)
                 # save the untouched plan for plan-first workflows
                 result.semantic.plan.save(out)
                 receipt = result.save_artifacts(out)
