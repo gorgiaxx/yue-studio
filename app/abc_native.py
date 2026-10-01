@@ -202,11 +202,17 @@ def parse(text: str) -> Score:
     while cursor < len(lines):
         while cursor < len(lines) and lines[cursor].startswith("% "):
             cursor += 1
+        # structural errors carry the offending line's position too
+        _LOC.clear()
+        _LOC.update(line_no=cursor + 1, line_text=lines[cursor] if cursor < len(lines) else "")
         fail(cursor == len(lines), "Dangling section comment without music")
         group += 1
         counts = []
         for name in VOICES:
             context = f"group {group}, {name}"
+            _LOC["voice"] = name
+            _LOC["line_no"] = min(cursor, len(lines) - 1) + 1
+            _LOC["line_text"] = lines[min(cursor, len(lines) - 1)]
             fail(cursor >= len(lines) or lines[cursor] != f"V: {name}", f"{context}: expected V: {name}")
             cursor += 1
             voice = voices[name]
