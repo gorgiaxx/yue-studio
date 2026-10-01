@@ -612,17 +612,32 @@ async function abcDiag() {
         body: JSON.stringify({ abc }) });
       const d = await r.json();
       diag.style.display = 'block';
-      if (!d.valid && !d.quick) {
-        diag.innerHTML = `<span style="color:var(--error)">✗ Native validation 失败：${esc(d.error || '')}</span>`;
+      const renderErr = (err, loc) => {
+        const where = loc && loc.line_no
+          ? ` · 第 ${loc.line_no} 行${loc.bar_no ? ' 第 ' + loc.bar_no + ' 小节' : ''}${loc.voice ? ' ' + loc.voice : ''}`
+          : '';
+        let html = `<span style="color:var(--error)">✗ Native validation 失败：${esc(err)}${where ? `（<b>第 ${loc.line_no} 行</b>）` : ''}</span>`;
+        if (loc && loc.line_no) {
+          html += `<br><span class="hint">出错行：<code>${esc(loc.line_text || '')}</code></span>`
+                + ` <button type="button" class="btn btn-sm" id="gotoErrBtn">定位到该行 →</button>`;
+        }
+        diag.innerHTML = html;
+        const btn = $('#gotoErrBtn');
+        if (btn) btn.onclick = () => {
+          const ta = $('#abc');
+          const lines = ta.value.split('\n');
+          const start = lines.slice(0, loc.line_no - 1).reduce((a, l) => a + l.length + 1, 0);
+          ta.focus();
+          ta.setSelectionRange(start, start + (lines[loc.line_no - 1] || '').length);
+          const cs = getComputedStyle(ta);
+          const lh = parseFloat(cs.lineHeight) || 19.2;
+          ta.scrollTop = Math.max(0, (loc.line_no - 1) * lh - ta.clientHeight / 2 + lh);
+        };
         MODE_CHORDS = { invalid: true };
-        return;
-      }
+      };
+      if (!d.valid && !d.quick) { renderErr(d.error || '', d.location); return; }
       const q = d.quick || d;
-      if (!q.valid) {
-        diag.innerHTML = `<span style="color:var(--error)">✗ Native validation 失败：${esc(q.error || '')}</span>`;
-        MODE_CHORDS = { invalid: true };
-        return;
-      }
+      if (!q.valid) { renderErr(q.error || '', q.location); return; }
       MODE_CHORDS = q;
       let html = `✓ Native valid · ${q.bpm} BPM · ${q.meter} · ${q.key} · Vocal ${q.vocal_notes} 音 · Ins ${q.ins_notes} 音 · ${q.measures} 小节`;
       if (q.has_chords && mode === 'melody') {
