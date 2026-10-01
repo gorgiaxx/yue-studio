@@ -134,17 +134,15 @@ def _finish_attempt(aid, status, error=None, extra=None):
     if not song:
         return
     terminal = status in ("done", "done_truncated", "failed", "cancelled", "planned")
-    # The song's status tracks its ACTIVE attempt; other queued attempts show
-    # through the queue strip. A newly completed non-active attempt becomes
-    # active automatically (it superseded the previous view).
-    if song["active_attempt"] == aid:
-        db.update_song(song["id"], status=status, error=error_text)
-    elif terminal and status in ("done", "done_truncated", "planned"):
-        # a later attempt finished while an older one is still viewed:
-        # surface the finished one (queue order guarantees recency)
+    # A completed attempt always becomes the song's view: its audio/score must be
+    # written to the song row (this is what makes the play button appear). The old
+    # code only updated `status` for the active attempt — leaving audio_path NULL
+    # and the UI without a player.
+    if terminal and status in ("done", "done_truncated", "planned"):
         db.activate_attempt(song["id"], aid,
                             audio_path=latest.get("audio_path"),
                             abc_generated=latest.get("abc_generated"))
+    if song["active_attempt"] == aid or (terminal and status in ("done", "done_truncated", "planned")):
         db.update_song(song["id"], status=status, error=error_text)
     elif song["status"] in ("pending", "running") and status in ("failed", "cancelled"):
         db.update_song(song["id"], status=status, error=error_text)
